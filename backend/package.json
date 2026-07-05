@@ -13,6 +13,9 @@
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
+    "@okxweb3/coin-base": "2.0.6",
+    "@okxweb3/coin-ethereum": "2.4.10",
+    "@okxweb3/crypto-lib": "^2.0.6",
     "@supabase/supabase-js": "^2.110.0",
     "cors": "^2.8.6",
     "dotenv": "^17.4.2",
@@ -23,7 +26,11 @@
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.6",
     "@types/node": "^26.1.0",
+    "patch-package": "^8.0.1",
     "tsx": "^4.23.0",
     "typescript": "^6.0.3"
+  },
+  "overrides": {
+    "protobufjs": "^7.6.3"
   }
 }
