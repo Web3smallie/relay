@@ -3,6 +3,7 @@ import cors from "cors";
 import dotenv from "dotenv";
 import { supabase } from "./supabaseClient";
 import authRoutes from "./routes/auth";
+import { getBalance } from "./chain";
 
 dotenv.config();
 
@@ -27,4 +28,13 @@ app.get("/test-db", async (req, res) => {
 
 app.listen(PORT, () => {
   console.log(`Relay backend listening on port ${PORT}`);
+});
+
+app.get("/wallet/:address/balance", async (req, res) => {
+  try {
+    const balance = await getBalance(req.params.address);
+    res.json({ address: req.params.address, balance });
+  } catch (error) {
+    res.status(500).json({ error: (error as Error).message });
+  }
 });
