@@ -4,6 +4,8 @@ import dotenv from "dotenv";
 import { supabase } from "./supabaseClient";
 import authRoutes from "./routes/auth";
 import { getBalance } from "./chain";
+import profileRoutes from "./routes/profile";
+import addressRoutes from "./routes/addresses";
 
 dotenv.config();
 
@@ -13,6 +15,8 @@ const PORT = process.env.PORT || 4000;
 app.use(cors());
 app.use(express.json());
 app.use("/auth", authRoutes);
+app.use("/", profileRoutes);
+app.use("/", addressRoutes);
 
 app.get("/health", (req, res) => {
   res.json({ status: "ok", message: "Relay backend is running" });
