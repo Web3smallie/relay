@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 
-export default function DashboardPage() {
+export default function DashboardHomePage() {
   const [loading, setLoading] = useState(true);
   const [email, setEmail] = useState<string | null>(null);
   const router = useRouter();
@@ -25,32 +25,14 @@ export default function DashboardPage() {
     checkSession();
   }, [router]);
 
-  async function handleLogout() {
-    await supabase.auth.signOut();
-    router.push("/login");
-  }
-
   if (loading) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-neutral-950">
-        <p className="text-neutral-400">Loading...</p>
-      </div>
-    );
+    return <p className="text-neutral-400">Loading...</p>;
   }
 
   return (
-    <div className="min-h-screen bg-neutral-950 p-8 text-white">
-      <div className="mb-8 flex items-center justify-between">
-        <h1 className="text-xl font-semibold">Relay</h1>
-        <button
-          onClick={handleLogout}
-          className="text-sm text-neutral-400 hover:text-white"
-        >
-          Log out
-        </button>
-      </div>
-
-      <p className="text-neutral-300">Signed in as {email}</p>
+    <div>
+      <h2 className="mb-2 text-2xl font-semibold">Welcome back</h2>
+      <p className="text-neutral-400">Signed in as {email}</p>
     </div>
   );
 }
