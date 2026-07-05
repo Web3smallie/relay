@@ -1,5 +1,8 @@
 import { Router } from "express";
 import { supabase } from "../supabaseClient";
+import { supabaseAdmin } from "../supabaseAdmin";
+import { createWallet } from "../wallet";
+import { encrypt } from "../crypto";
 
 const router = Router();
 
@@ -15,6 +18,27 @@ router.post("/signup", async (req, res) => {
 
   if (error) {
     return res.status(400).json({ error: error.message });
+  }
+
+  const userId = data.user?.id;
+
+  if (userId) {
+    try {
+      const wallet = await createWallet();
+
+      const { error: walletError } = await supabaseAdmin.from("wallets").insert({
+        user_id: userId,
+        address: wallet.address,
+        encrypted_private_key: encrypt(wallet.privateKey),
+        encrypted_mnemonic: encrypt(wallet.mnemonic),
+      });
+
+      if (walletError) {
+        console.error("Failed to save wallet:", walletError.message);
+      }
+    } catch (walletCreationError) {
+      console.error("Failed to create wallet:", walletCreationError);
+    }
   }
 
   res.json({ user: data.user, session: data.session });
