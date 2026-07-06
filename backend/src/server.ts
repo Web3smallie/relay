@@ -2,10 +2,13 @@ import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
 import { supabase } from "./supabaseClient";
+import { supabaseAdmin } from "./supabaseAdmin";
 import authRoutes from "./routes/auth";
-import { getBalance } from "./chain";
 import profileRoutes from "./routes/profile";
 import addressRoutes from "./routes/addresses";
+import { getBalance } from "./chain";
+import { createWallet } from "./wallet";
+import { encrypt } from "./crypto";
 
 dotenv.config();
 
@@ -30,10 +33,6 @@ app.get("/test-db", async (req, res) => {
   res.json({ profiles: data });
 });
 
-app.listen(PORT, () => {
-  console.log(`Relay backend listening on port ${PORT}`);
-});
-
 app.get("/wallet/:address/balance", async (req, res) => {
   try {
     const balance = await getBalance(req.params.address);
@@ -41,4 +40,59 @@ app.get("/wallet/:address/balance", async (req, res) => {
   } catch (error) {
     res.status(500).json({ error: (error as Error).message });
   }
+});
+
+app.get("/wallet/for-user/:userId", async (req, res) => {
+  const { data, error } = await supabaseAdmin
+    .from("wallets")
+    .select("address")
+    .eq("user_id", req.params.userId)
+    .single();
+
+  if (error || !data) {
+    return res.status(404).json({ error: "No wallet found for this user" });
+  }
+
+  res.json({ address: data.address });
+});
+
+app.get("/wallet-status/:userId", async (req, res) => {
+  const { data, error } = await supabaseAdmin
+    .from("wallets")
+    .select("address")
+    .eq("user_id", req.params.userId)
+    .single();
+
+  res.json({ hasWallet: !error && !!data });
+});
+
+app.post("/wallet/create-for-user", async (req, res) => {
+  const { userId } = req.body;
+
+  if (!userId) {
+    return res.status(400).json({ error: "userId is required" });
+  }
+
+  try {
+    const wallet = await createWallet();
+
+    const { error } = await supabaseAdmin.from("wallets").insert({
+      user_id: userId,
+      address: wallet.address,
+      encrypted_private_key: encrypt(wallet.privateKey),
+      encrypted_mnemonic: encrypt(wallet.mnemonic),
+    });
+
+    if (error) {
+      return res.status(500).json({ error: error.message });
+    }
+
+    res.json({ address: wallet.address });
+  } catch (err) {
+    res.status(500).json({ error: (err as Error).message });
+  }
+});
+
+app.listen(PORT, () => {
+  console.log(`Relay backend listening on port ${PORT}`);
 });

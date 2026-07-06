@@ -7,10 +7,11 @@ import { supabase } from "@/lib/supabase";
 export default function DashboardHomePage() {
   const [loading, setLoading] = useState(true);
   const [email, setEmail] = useState<string | null>(null);
+  const [fullName, setFullName] = useState<string | null>(null);
   const router = useRouter();
 
   useEffect(() => {
-    async function checkSession() {
+    async function checkSessionAndProfile() {
       const { data } = await supabase.auth.getSession();
 
       if (!data.session) {
@@ -18,11 +19,23 @@ export default function DashboardHomePage() {
         return;
       }
 
+      const userId = data.session.user.id;
       setEmail(data.session.user.email ?? null);
+
+      try {
+        const res = await fetch(`http://localhost:4000/profile/${userId}`);
+        if (res.ok) {
+          const json = await res.json();
+          setFullName(json.profile?.full_name ?? null);
+        }
+      } catch {
+        // If the backend isn't reachable, just fall back to showing email only
+      }
+
       setLoading(false);
     }
 
-    checkSession();
+    checkSessionAndProfile();
   }, [router]);
 
   if (loading) {
@@ -31,8 +44,9 @@ export default function DashboardHomePage() {
 
   return (
     <div>
-      <h2 className="mb-2 text-2xl font-semibold">Welcome back</h2>
-      <p className="text-neutral-400">Signed in as {email}</p>
+      <h2 className="mb-2 text-2xl font-semibold">
+        Welcome back{fullName ? `, ${fullName}` : ""}
+      </h2>
     </div>
   );
 }
