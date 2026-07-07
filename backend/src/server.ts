@@ -12,6 +12,7 @@ import { encrypt } from "./crypto";
 import { ShopifyAdapter } from "./merchants/ShopifyAdapter";
 import { parseConstraints } from "./agent/constraintParser";
 import { executePurchaseSearch } from "./agent/executePurchaseSearch";
+import { searchWithConstraints } from "./agent/executePurchaseSearch";
 
 dotenv.config();
 
@@ -136,6 +137,20 @@ app.post("/agent/search", async (req, res) => {
     }
 
     const result = await executePurchaseSearch(request);
+    res.json(result);
+  } catch (error) {
+    res.status(500).json({ error: (error as Error).message });
+  }
+});
+
+app.post("/agent/search-with-constraints", async (req, res) => {
+  try {
+    const { constraints } = req.body;
+    if (!constraints) {
+      return res.status(400).json({ error: "constraints is required" });
+    }
+
+    const result = await searchWithConstraints(constraints);
     res.json(result);
   } catch (error) {
     res.status(500).json({ error: (error as Error).message });

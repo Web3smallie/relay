@@ -9,6 +9,7 @@ export type Recommendation = {
 
 export type PurchaseSearchResult = {
   constraints: PurchaseConstraints;
+  totalFound: number;
   recommendation: Recommendation | null;
   alternatives: Product[];
 };
@@ -30,34 +31,34 @@ function buildReasons(product: Product, constraints: PurchaseConstraints, isChea
   return reasons;
 }
 
-export async function executePurchaseSearch(request: string): Promise<PurchaseSearchResult> {
-  // Step 1: Understand the request
-  const constraints = await parseConstraints(request);
-
-  // Step 2: Search the merchant using the extracted constraints
+export async function searchWithConstraints(
+  constraints: PurchaseConstraints
+): Promise<PurchaseSearchResult> {
   const adapter = new ShopifyAdapter();
   const results = await adapter.search({
     query: constraints.productQuery,
     maxPrice: constraints.maxPrice ?? undefined,
   });
 
-  // Step 3: Only consider items actually available for purchase
   const available = results.filter((p) => p.available);
-
-  // Step 4: Sort cheapest first
   const sorted = available.sort((a, b) => a.price - b.price);
 
   if (sorted.length === 0) {
-    return { constraints, recommendation: null, alternatives: [] };
+    return { constraints, totalFound: 0, recommendation: null, alternatives: [] };
   }
 
-  // Step 5: Pick the top match as the recommendation, explain why
   const [best, ...rest] = sorted;
   const reasons = buildReasons(best, constraints, true);
 
   return {
     constraints,
+    totalFound: sorted.length,
     recommendation: { product: best, reasons },
     alternatives: rest,
   };
+}
+
+export async function executePurchaseSearch(request: string): Promise<PurchaseSearchResult> {
+  const constraints = await parseConstraints(request);
+  return searchWithConstraints(constraints);
 }
