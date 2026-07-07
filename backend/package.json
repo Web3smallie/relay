@@ -16,6 +16,7 @@
     "@okxweb3/coin-base": "2.0.6",
     "@okxweb3/coin-ethereum": "2.4.10",
     "@okxweb3/crypto-lib": "^2.0.6",
+    "@shopify/storefront-api-client": "^1.0.10",
     "@supabase/supabase-js": "^2.110.0",
     "cors": "^2.8.6",
     "dotenv": "^17.4.2",

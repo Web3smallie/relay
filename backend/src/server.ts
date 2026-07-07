@@ -9,6 +9,7 @@ import addressRoutes from "./routes/addresses";
 import { getBalance } from "./chain";
 import { createWallet } from "./wallet";
 import { encrypt } from "./crypto";
+import { ShopifyAdapter } from "./merchants/ShopifyAdapter";
 
 dotenv.config();
 
@@ -95,4 +96,18 @@ app.post("/wallet/create-for-user", async (req, res) => {
 
 app.listen(PORT, () => {
   console.log(`Relay backend listening on port ${PORT}`);
+});
+
+app.get("/merchant-search", async (req, res) => {
+  try {
+    const query = (req.query.q as string) || "";
+    const maxPrice = req.query.maxPrice ? parseFloat(req.query.maxPrice as string) : undefined;
+
+    const adapter = new ShopifyAdapter();
+    const results = await adapter.search({ query, maxPrice });
+
+    res.json({ results });
+  } catch (error) {
+    res.status(500).json({ error: (error as Error).message });
+  }
 });
