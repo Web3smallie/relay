@@ -13,6 +13,7 @@
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.110.0",
     "@okxweb3/coin-base": "2.0.6",
     "@okxweb3/coin-ethereum": "2.4.10",
     "@okxweb3/crypto-lib": "^2.0.6",

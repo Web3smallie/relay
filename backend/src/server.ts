@@ -10,6 +10,7 @@ import { getBalance } from "./chain";
 import { createWallet } from "./wallet";
 import { encrypt } from "./crypto";
 import { ShopifyAdapter } from "./merchants/ShopifyAdapter";
+import { parseConstraints } from "./agent/constraintParser";
 
 dotenv.config();
 
@@ -107,6 +108,20 @@ app.get("/merchant-search", async (req, res) => {
     const results = await adapter.search({ query, maxPrice });
 
     res.json({ results });
+  } catch (error) {
+    res.status(500).json({ error: (error as Error).message });
+  }
+});
+
+app.post("/agent/parse", async (req, res) => {
+  try {
+    const { request } = req.body;
+    if (!request) {
+      return res.status(400).json({ error: "request is required" });
+    }
+
+    const constraints = await parseConstraints(request);
+    res.json({ constraints });
   } catch (error) {
     res.status(500).json({ error: (error as Error).message });
   }
