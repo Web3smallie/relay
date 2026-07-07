@@ -11,6 +11,7 @@ import { createWallet } from "./wallet";
 import { encrypt } from "./crypto";
 import { ShopifyAdapter } from "./merchants/ShopifyAdapter";
 import { parseConstraints } from "./agent/constraintParser";
+import { executePurchaseSearch } from "./agent/executePurchaseSearch";
 
 dotenv.config();
 
@@ -122,6 +123,20 @@ app.post("/agent/parse", async (req, res) => {
 
     const constraints = await parseConstraints(request);
     res.json({ constraints });
+  } catch (error) {
+    res.status(500).json({ error: (error as Error).message });
+  }
+});
+
+app.post("/agent/search", async (req, res) => {
+  try {
+    const { request } = req.body;
+    if (!request) {
+      return res.status(400).json({ error: "request is required" });
+    }
+
+    const result = await executePurchaseSearch(request);
+    res.json(result);
   } catch (error) {
     res.status(500).json({ error: (error as Error).message });
   }
