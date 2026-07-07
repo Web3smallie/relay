@@ -2,10 +2,33 @@ import { parseConstraints, PurchaseConstraints } from "./constraintParser";
 import { ShopifyAdapter } from "../merchants/ShopifyAdapter";
 import { Product } from "../merchants/MerchantAdapter";
 
+export type Recommendation = {
+  product: Product;
+  reasons: string[];
+};
+
 export type PurchaseSearchResult = {
   constraints: PurchaseConstraints;
-  matches: Product[];
+  recommendation: Recommendation | null;
+  alternatives: Product[];
 };
+
+function buildReasons(product: Product, constraints: PurchaseConstraints, isCheapest: boolean): string[] {
+  const reasons: string[] = [];
+
+  if (isCheapest) {
+    reasons.push("Lowest price among matching results");
+  }
+
+  if (constraints.maxPrice !== null && product.price <= constraints.maxPrice) {
+    reasons.push(`Within your budget of $${constraints.maxPrice}`);
+  }
+
+  reasons.push(`Matches "${constraints.productQuery}"`);
+  reasons.push("Available for purchase");
+
+  return reasons;
+}
 
 export async function executePurchaseSearch(request: string): Promise<PurchaseSearchResult> {
   // Step 1: Understand the request
@@ -18,14 +41,23 @@ export async function executePurchaseSearch(request: string): Promise<PurchaseSe
     maxPrice: constraints.maxPrice ?? undefined,
   });
 
-  // Step 3: Only return items actually available for purchase
+  // Step 3: Only consider items actually available for purchase
   const available = results.filter((p) => p.available);
 
-  // Step 4: Sort cheapest first — a sensible default when the user asks for "cheapest"
+  // Step 4: Sort cheapest first
   const sorted = available.sort((a, b) => a.price - b.price);
+
+  if (sorted.length === 0) {
+    return { constraints, recommendation: null, alternatives: [] };
+  }
+
+  // Step 5: Pick the top match as the recommendation, explain why
+  const [best, ...rest] = sorted;
+  const reasons = buildReasons(best, constraints, true);
 
   return {
     constraints,
-    matches: sorted,
+    recommendation: { product: best, reasons },
+    alternatives: rest,
   };
 }
