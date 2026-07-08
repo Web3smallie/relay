@@ -41,12 +41,41 @@ const SEARCH_QUERY = `
   }
 `;
 
+const CART_CREATE_MUTATION = `
+  mutation CartCreate($lines: [CartLineInput!]!) {
+    cartCreate(input: { lines: $lines }) {
+      cart {
+        id
+        checkoutUrl
+      }
+      userErrors {
+        field
+        message
+      }
+    }
+  }
+`;
+
+const VARIANT_QUERY = `
+  query GetVariant($id: ID!) {
+    product(id: $id) {
+      variants(first: 1) {
+        edges {
+          node {
+            id
+          }
+        }
+      }
+    }
+  }
+`;
+
 export class ShopifyAdapter implements MerchantAdapter {
   async search(params: ProductSearchParams): Promise<Product[]> {
     const formattedQuery = params.query ? `title:*${params.query}*` : "";
 
     const { data, errors } = await client.request(SEARCH_QUERY, {
-    variables: { query: formattedQuery },
+      variables: { query: formattedQuery },
     });
 
     if (errors) {
@@ -73,5 +102,31 @@ export class ShopifyAdapter implements MerchantAdapter {
     }
 
     return products;
+  }
+
+  async checkout(productId: string, quantity: number): Promise<{ checkoutUrl: string }> {
+    // productId is a Product ID (gid://shopify/Product/...), but cart lines
+    // need a Variant ID — fetch the default variant first.
+    const { data: variantData, errors: variantErrors } = await client.request(VARIANT_QUERY, {
+      variables: { id: productId },
+    });
+
+    if (variantErrors || !variantData?.product?.variants?.edges?.length) {
+      throw new Error("Could not find a purchasable variant for this product");
+    }
+
+    const variantId = variantData.product.variants.edges[0].node.id;
+
+    const { data, errors } = await client.request(CART_CREATE_MUTATION, {
+      variables: { lines: [{ merchandiseId: variantId, quantity }] },
+    });
+
+    if (errors || data.cartCreate.userErrors.length > 0) {
+      throw new Error(
+        `Checkout creation failed: ${JSON.stringify(errors || data.cartCreate.userErrors)}`
+      );
+    }
+
+    return { checkoutUrl: data.cartCreate.cart.checkoutUrl };
   }
 }
