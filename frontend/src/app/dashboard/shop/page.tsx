@@ -25,7 +25,7 @@ type Constraints = {
 type SearchResult = {
   constraints: Constraints;
   totalFound: number;
-  recommendation: { product: Product; reasons: string[] } | null;
+  recommendation: { product: Product; reasons: string[]; checkoutUrl: string | null } | null;
   alternatives: Product[];
 };
 
@@ -58,7 +58,6 @@ export default function ShopPage() {
     }
 
     try {
-      // Step 1: parse — reveal real extracted constraints as soon as they exist
       const parseRes = await fetch("http://localhost:4000/agent/parse", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -75,7 +74,6 @@ export default function ShopPage() {
       setConstraints(parseJson.constraints);
       setStage("searching");
 
-      // Step 2: search using those real constraints
       const searchRes = await fetch("http://localhost:4000/agent/search-with-constraints", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -90,7 +88,6 @@ export default function ShopPage() {
       }
 
       setTotalFound(searchJson.totalFound);
-      // brief pause so the "found N results" moment is actually seen
       await new Promise((r) => setTimeout(r, 500));
 
       setResult(searchJson);
@@ -135,11 +132,13 @@ export default function ShopPage() {
     product,
     isRecommended,
     reasons,
+    checkoutUrl,
     delayMs,
   }: {
     product: Product;
     isRecommended?: boolean;
     reasons?: string[];
+    checkoutUrl?: string | null;
     delayMs?: number;
   }) {
     return (
@@ -184,14 +183,32 @@ export default function ShopPage() {
           </ul>
         )}
 
-        <button className="w-full rounded-lg bg-white py-2 text-sm font-medium text-black hover:bg-neutral-200">
-          Purchase
-        </button>
+        {isRecommended && (
+          <div
+            className="animate-fade-in-up mt-2"
+            style={{ animationDelay: `${(delayMs ?? 0) + 600}ms` }}
+          >
+            {checkoutUrl ? (
+              
+                <a href={checkoutUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="block w-full rounded-lg bg-white py-2 text-center text-sm font-medium text-black hover:bg-neutral-200"
+              >
+                Checkout ready — open cart
+              </a>
+            ) : (
+              <div className="flex items-center justify-center gap-2 rounded-lg border border-neutral-700 py-2 text-sm text-neutral-400">
+                <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-neutral-400" />
+                Creating cart...
+              </div>
+            )}
+          </div>
+        )}
       </div>
     );
   }
 
-  // --- Empty state: the hero moment ---
   if (!hasSearched) {
     return (
       <div className="flex min-h-[70vh] flex-col items-center justify-center px-4 text-center">
@@ -240,7 +257,6 @@ export default function ShopPage() {
     );
   }
 
-  // --- Results / progress state ---
   return (
     <div>
       <form onSubmit={handleSubmit} className="mb-6 max-w-2xl">
@@ -300,6 +316,7 @@ export default function ShopPage() {
               product={result.recommendation.product}
               isRecommended
               reasons={result.recommendation.reasons}
+              checkoutUrl={result.recommendation.checkoutUrl}
               delayMs={0}
             />
           </div>
