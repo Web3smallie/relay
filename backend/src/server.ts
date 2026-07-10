@@ -14,6 +14,7 @@ import { parseConstraints } from "./agent/constraintParser";
 import { executePurchaseSearch } from "./agent/executePurchaseSearch";
 import { searchWithConstraints } from "./agent/executePurchaseSearch";
 import { SaleorAdapter } from "./merchants/SaleorAdapter";
+import saleorPaymentRoutes from "./routes/saleorPayment";
 
 dotenv.config();
 
@@ -25,6 +26,8 @@ app.use(express.json());
 app.use("/auth", authRoutes);
 app.use("/", profileRoutes);
 app.use("/", addressRoutes);
+app.use("/saleor-payment", saleorPaymentRoutes);
+
 
 app.get("/health", (req, res) => {
   res.json({ status: "ok", message: "Relay backend is running" });
