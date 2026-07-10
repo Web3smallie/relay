@@ -171,3 +171,19 @@ app.get("/saleor-search", async (req, res) => {
     res.status(500).json({ error: (error as Error).message });
   }
 });
+
+app.post("/saleor-checkout", async (req, res) => {
+  try {
+    const { productId, quantity } = req.body;
+    if (!productId) {
+      return res.status(400).json({ error: "productId is required" });
+    }
+
+    const adapter = new SaleorAdapter();
+    const result = await adapter.checkout(productId, quantity || 1);
+
+    res.json(result);
+  } catch (error) {
+    res.status(500).json({ error: (error as Error).message });
+  }
+});
