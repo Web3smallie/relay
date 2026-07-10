@@ -13,6 +13,7 @@ import { ShopifyAdapter } from "./merchants/ShopifyAdapter";
 import { parseConstraints } from "./agent/constraintParser";
 import { executePurchaseSearch } from "./agent/executePurchaseSearch";
 import { searchWithConstraints } from "./agent/executePurchaseSearch";
+import { SaleorAdapter } from "./merchants/SaleorAdapter";
 
 dotenv.config();
 
@@ -152,6 +153,20 @@ app.post("/agent/search-with-constraints", async (req, res) => {
 
     const result = await searchWithConstraints(constraints);
     res.json(result);
+  } catch (error) {
+    res.status(500).json({ error: (error as Error).message });
+  }
+});
+
+app.get("/saleor-search", async (req, res) => {
+  try {
+    const query = (req.query.q as string) || "";
+    const maxPrice = req.query.maxPrice ? parseFloat(req.query.maxPrice as string) : undefined;
+
+    const adapter = new SaleorAdapter();
+    const results = await adapter.search({ query, maxPrice });
+
+    res.json({ results });
   } catch (error) {
     res.status(500).json({ error: (error as Error).message });
   }

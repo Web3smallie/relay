@@ -13,7 +13,7 @@ if (!storeDomain || !storefrontToken) {
 
 const client = createStorefrontApiClient({
   storeDomain: `https://${storeDomain}`,
-  apiVersion: "2025-01",
+  apiVersion: "2026-01",
   publicAccessToken: storefrontToken,
 });
 
