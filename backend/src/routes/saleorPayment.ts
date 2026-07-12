@@ -1,37 +1,78 @@
 import { Router } from "express";
+import { verifyUsdcPayment } from "../agent/verifyPayment";
 
 const router = Router();
 
 // Called by Saleor when a checkout starts the payment process.
-// We respond telling Saleor we're ready to handle the charge ourselves.
 router.post("/transaction-initialize", async (req, res) => {
   console.log("Saleor transaction-initialize called:", JSON.stringify(req.body, null, 2));
+
+  const amount = req.body.action?.amount ?? 0;
 
   res.json({
     pspReference: `relay-${Date.now()}`,
     result: "CHARGE_ACTION_REQUIRED",
-    amount: req.body.action?.amount ?? 0,
+    amount,
     data: {
-      message: "Waiting for Relay to confirm USDC payment",
+      message: "Send USDC to Relay's treasury wallet to complete payment",
+      treasuryAddress: process.env.RELAY_TREASURY_ADDRESS,
+      expectedAmount: amount,
     },
   });
 });
 
 // Called by Saleor to check/continue the payment process.
-// This is where we'll eventually verify the real USDC transfer before confirming.
+// This now actually verifies a real on-chain USDC transfer before confirming.
 router.post("/transaction-process", async (req, res) => {
   console.log("Saleor transaction-process called:", JSON.stringify(req.body, null, 2));
 
-  // TEMPORARY: auto-confirm for now, so we can test the flow end-to-end.
-  // We will replace this with real on-chain USDC verification next.
-  res.json({
-    pspReference: `relay-${Date.now()}`,
-    result: "CHARGE_SUCCESS",
-    amount: req.body.action?.amount ?? 0,
-    data: {
-      message: "Payment confirmed by Relay (temporary auto-confirm)",
-    },
-  });
+  const amount = req.body.action?.amount ?? 0;
+  const payerAddress = req.body.data?.payerAddress;
+
+  if (!payerAddress) {
+    return res.json({
+      pspReference: `relay-${Date.now()}`,
+      result: "CHARGE_FAILURE",
+      amount: 0,
+      data: {
+        message: "No payer wallet address provided — cannot verify payment",
+      },
+    });
+  }
+
+  try {
+    const isPaid = await verifyUsdcPayment(payerAddress, amount);
+
+    if (isPaid) {
+      res.json({
+        pspReference: `relay-${Date.now()}`,
+        result: "CHARGE_SUCCESS",
+        amount,
+        data: {
+          message: "Real USDC payment verified on-chain",
+        },
+      });
+    } else {
+      res.json({
+        pspReference: `relay-${Date.now()}`,
+        result: "CHARGE_FAILURE",
+        amount: 0,
+        data: {
+          message: "No matching USDC payment found on-chain yet",
+        },
+      });
+    }
+  } catch (error) {
+    console.error("Payment verification error:", error);
+    res.json({
+      pspReference: `relay-${Date.now()}`,
+      result: "CHARGE_FAILURE",
+      amount: 0,
+      data: {
+        message: "Error verifying payment",
+      },
+    });
+  }
 });
 
 export default router;
