@@ -190,3 +190,16 @@ app.post("/saleor-checkout", async (req, res) => {
     res.status(500).json({ error: (error as Error).message });
   }
 });
+
+app.get("/test-verify-payment", async (req, res) => {
+  try {
+    const { verifyUsdcPayment } = await import("./agent/verifyPayment.js");
+    const result = await verifyUsdcPayment(
+      "0x294a9bAeF895e5161FE9c37A70DF3AF4eA323AB0",
+      0.1
+    );
+    res.json({ verified: result });
+  } catch (error) {
+    res.status(500).json({ error: (error as Error).message });
+  }
+});
