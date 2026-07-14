@@ -23,6 +23,10 @@ const PORT = process.env.PORT || 4000;
 
 app.use(cors());
 app.use(express.json());
+app.use((req, res, next) => {
+  console.log(`>>> INCOMING REQUEST: ${req.method} ${req.url}`);
+  next();
+});
 app.use("/auth", authRoutes);
 app.use("/", profileRoutes);
 app.use("/", addressRoutes);
@@ -177,13 +181,13 @@ app.get("/saleor-search", async (req, res) => {
 
 app.post("/saleor-checkout", async (req, res) => {
   try {
-    const { productId, quantity } = req.body;
+    const { productId, quantity, payerAddress } = req.body;
     if (!productId) {
       return res.status(400).json({ error: "productId is required" });
     }
 
     const adapter = new SaleorAdapter();
-    const result = await adapter.checkout(productId, quantity || 1);
+    const result = await adapter.checkout(productId, quantity || 1, payerAddress);
 
     res.json(result);
   } catch (error) {

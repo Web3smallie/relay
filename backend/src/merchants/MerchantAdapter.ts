@@ -23,5 +23,9 @@ export interface MerchantAdapter {
 
 export interface MerchantAdapter {
   search(params: ProductSearchParams): Promise<Product[]>;
-  checkout(productId: string, quantity: number): Promise<{ checkoutUrl: string }>;
+  checkout(
+    productId: string,
+    quantity: number,
+    payerAddress?: string
+  ): Promise<{ checkoutUrl: string }>;
 }

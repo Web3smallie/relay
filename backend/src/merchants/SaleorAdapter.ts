@@ -105,7 +105,11 @@ export class SaleorAdapter implements MerchantAdapter {
     return products;
   }
 
-  async checkout(productId: string, quantity: number): Promise<{ checkoutUrl: string }> {
+  async checkout(
+    productId: string,
+    quantity: number,
+    payerAddress?: string
+  ): Promise<{ checkoutUrl: string }> {
     // Saleor checkout lines need a Variant ID — fetch the product's first variant
     const variantQuery = gql`
       query GetVariant($id: ID!, $channel: String!) {
@@ -136,6 +140,7 @@ export class SaleorAdapter implements MerchantAdapter {
       input: {
         channel: CHANNEL,
         lines: [{ quantity, variantId }],
+        metadata: payerAddress ? [{ key: "payerAddress", value: payerAddress }] : [],
       },
     });
 
@@ -146,8 +151,7 @@ export class SaleorAdapter implements MerchantAdapter {
     }
 
     // Saleor doesn't generate a hosted checkout URL by default the way Shopify does —
-    // this returns the checkout ID, which our own frontend/checkout flow will use directly
-    // (relevant once we build the Payment App in the next step).
+    // this returns the checkout ID, which our own frontend/checkout flow will use directly.
     return { checkoutUrl: result.checkoutCreate.checkout.id };
   }
 }
