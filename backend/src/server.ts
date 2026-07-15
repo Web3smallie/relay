@@ -15,6 +15,8 @@ import { executePurchaseSearch } from "./agent/executePurchaseSearch";
 import { searchWithConstraints } from "./agent/executePurchaseSearch";
 import { SaleorAdapter } from "./merchants/SaleorAdapter";
 import saleorPaymentRoutes from "./routes/saleorPayment";
+import { initiatePayment } from "./agent/executePayment";
+import { sendUsdcPayment } from "./agent/sendPayment";
 
 dotenv.config();
 
@@ -203,6 +205,92 @@ app.get("/test-verify-payment", async (req, res) => {
       0.1
     );
     res.json({ verified: result });
+  } catch (error) {
+    res.status(500).json({ error: (error as Error).message });
+  }
+});
+
+app.post("/saleor-select-shipping", async (req, res) => {
+  try {
+    const { checkoutId } = req.body;
+    if (!checkoutId) {
+      return res.status(400).json({ error: "checkoutId is required" });
+    }
+
+    const { GraphQLClient, gql } = await import("graphql-request");
+    const client = new GraphQLClient(process.env.SALEOR_API_URL as string, {
+      headers: { Authorization: `Bearer ${process.env.SALEOR_APP_TOKEN}` },
+    });
+
+    // Get available shipping methods now that address is set
+    const methodsQuery = gql`
+      query GetShippingMethods($id: ID!) {
+        checkout(id: $id) {
+          shippingMethods {
+            id
+            name
+          }
+        }
+      }
+    `;
+
+    const methodsData: any = await client.request(methodsQuery, { id: checkoutId });
+    const firstMethod = methodsData.checkout?.shippingMethods?.[0];
+
+    if (!firstMethod) {
+      return res.status(400).json({ error: "No shipping methods available for this checkout" });
+    }
+
+    const updateMutation = gql`
+      mutation SetShipping($id: ID!, $shippingMethodId: ID!) {
+        checkoutShippingMethodUpdate(id: $id, shippingMethodId: $shippingMethodId) {
+          checkout {
+            id
+          }
+          errors {
+            field
+            message
+          }
+        }
+      }
+    `;
+
+    const result: any = await client.request(updateMutation, {
+      id: checkoutId,
+      shippingMethodId: firstMethod.id,
+    });
+
+    res.json({ selectedShippingMethod: firstMethod.name, result });
+  } catch (error) {
+    res.status(500).json({ error: (error as Error).message });
+  }
+});
+
+app.post("/agent/pay", async (req, res) => {
+  try {
+    const { userId, checkoutId } = req.body;
+
+    if (!userId || !checkoutId) {
+      return res.status(400).json({ error: "userId and checkoutId are required" });
+    }
+
+    // Step 1: Initialize the transaction with Saleor, get real total + treasury address
+    const initiation = await initiatePayment(checkoutId);
+
+    // Step 2: Send the real USDC payment from this user's real wallet
+    const payment = await sendUsdcPayment(
+      userId,
+      initiation.treasuryAddress,
+      initiation.expectedAmount
+    );
+
+    res.json({
+      transactionId: initiation.transactionId,
+      amount: initiation.expectedAmount,
+      paymentHash: payment.hash,
+      payerAddress: payment.payerAddress,
+      message: "Payment sent. Confirmation may take a few seconds to process on-chain.",
+    });
   } catch (error) {
     res.status(500).json({ error: (error as Error).message });
   }

@@ -108,7 +108,8 @@ export class SaleorAdapter implements MerchantAdapter {
   async checkout(
     productId: string,
     quantity: number,
-    payerAddress?: string
+    payerAddress?: string,
+    email?: string
   ): Promise<{ checkoutUrl: string }> {
     // Saleor checkout lines need a Variant ID — fetch the product's first variant
     const variantQuery = gql`
@@ -132,17 +133,36 @@ export class SaleorAdapter implements MerchantAdapter {
     }
 
     const result = await client.request<{
-      checkoutCreate: {
-        checkout: { id: string } | null;
-        errors: { field: string; message: string }[];
-      };
-    }>(CHECKOUT_CREATE_MUTATION, {
-      input: {
-        channel: CHANNEL,
-        lines: [{ quantity, variantId }],
-        metadata: payerAddress ? [{ key: "payerAddress", value: payerAddress }] : [],
-      },
-    });
+  checkoutCreate: {
+    checkout: { id: string } | null;
+    errors: { field: string; message: string }[];
+  };
+}>(CHECKOUT_CREATE_MUTATION, {
+  input: {
+    channel: CHANNEL,
+    email: email ?? "test-buyer@relay-demo.com",
+    lines: [{ quantity, variantId }],
+    metadata: payerAddress ? [{ key: "payerAddress", value: payerAddress }] : [],
+   shippingAddress: {
+  firstName: "Relay",
+  lastName: "Demo",
+  streetAddress1: "123 Demo Street",
+  city: "New York",
+  countryArea: "NY",
+  postalCode: "10001",
+  country: "US",
+},
+billingAddress: {
+  firstName: "Relay",
+  lastName: "Demo",
+  streetAddress1: "123 Demo Street",
+  city: "New York",
+  countryArea: "NY",
+  postalCode: "10001",
+  country: "US",
+},
+  },
+});
 
     if (result.checkoutCreate.errors.length > 0 || !result.checkoutCreate.checkout) {
       throw new Error(
