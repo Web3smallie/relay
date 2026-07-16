@@ -73,6 +73,42 @@ type SaleorProductNode = {
   variants: { id: string; quantityAvailable: number | null }[];
 };
 
+// Shape of a resolved address row coming from Supabase (see executePurchaseSearch.ts).
+// Old rows saved before the address-structure fix may only have `street` populated —
+// every field is optional so we can fall back gracefully instead of crashing.
+export type ResolvedAddress = {
+  street?: string | null;
+  city?: string | null;
+  state?: string | null;
+  postal_code?: string | null;
+  country?: string | null;
+};
+
+const PLACEHOLDER_ADDRESS = {
+  streetAddress1: "123 Demo Street",
+  city: "New York",
+  countryArea: "NY",
+  postalCode: "10001",
+  country: "US",
+};
+
+function buildAddressInput(resolvedAddress?: ResolvedAddress | null) {
+  if (!resolvedAddress) {
+    return PLACEHOLDER_ADDRESS;
+  }
+
+  // Fill each field from the resolved address if present, otherwise fall back
+  // to the placeholder value for that field only — so a partially-populated
+  // old row still produces a valid Saleor address instead of failing.
+  return {
+    streetAddress1: resolvedAddress.street ?? PLACEHOLDER_ADDRESS.streetAddress1,
+    city: resolvedAddress.city ?? PLACEHOLDER_ADDRESS.city,
+    countryArea: resolvedAddress.state ?? PLACEHOLDER_ADDRESS.countryArea,
+    postalCode: resolvedAddress.postal_code ?? PLACEHOLDER_ADDRESS.postalCode,
+    country: resolvedAddress.country ?? PLACEHOLDER_ADDRESS.country,
+  };
+}
+
 export class SaleorAdapter implements MerchantAdapter {
   async search(params: ProductSearchParams): Promise<Product[]> {
     const filter = params.query ? { search: params.query } : {};
@@ -109,7 +145,8 @@ export class SaleorAdapter implements MerchantAdapter {
     productId: string,
     quantity: number,
     payerAddress?: string,
-    email?: string
+    email?: string,
+    resolvedAddress?: ResolvedAddress | null
   ): Promise<{ checkoutUrl: string }> {
     // Saleor checkout lines need a Variant ID — fetch the product's first variant
     const variantQuery = gql`
@@ -132,37 +169,31 @@ export class SaleorAdapter implements MerchantAdapter {
       throw new Error("Could not find a purchasable variant for this product");
     }
 
+    const addressInput = buildAddressInput(resolvedAddress);
+
     const result = await client.request<{
-  checkoutCreate: {
-    checkout: { id: string } | null;
-    errors: { field: string; message: string }[];
-  };
-}>(CHECKOUT_CREATE_MUTATION, {
-  input: {
-    channel: CHANNEL,
-    email: email ?? "test-buyer@relay-demo.com",
-    lines: [{ quantity, variantId }],
-    metadata: payerAddress ? [{ key: "payerAddress", value: payerAddress }] : [],
-   shippingAddress: {
-  firstName: "Relay",
-  lastName: "Demo",
-  streetAddress1: "123 Demo Street",
-  city: "New York",
-  countryArea: "NY",
-  postalCode: "10001",
-  country: "US",
-},
-billingAddress: {
-  firstName: "Relay",
-  lastName: "Demo",
-  streetAddress1: "123 Demo Street",
-  city: "New York",
-  countryArea: "NY",
-  postalCode: "10001",
-  country: "US",
-},
-  },
-});
+      checkoutCreate: {
+        checkout: { id: string } | null;
+        errors: { field: string; message: string }[];
+      };
+    }>(CHECKOUT_CREATE_MUTATION, {
+      input: {
+        channel: CHANNEL,
+        email: email ?? "test-buyer@relay-demo.com",
+        lines: [{ quantity, variantId }],
+        metadata: payerAddress ? [{ key: "payerAddress", value: payerAddress }] : [],
+        shippingAddress: {
+          firstName: "Relay",
+          lastName: "Demo",
+          ...addressInput,
+        },
+        billingAddress: {
+          firstName: "Relay",
+          lastName: "Demo",
+          ...addressInput,
+        },
+      },
+    });
 
     if (result.checkoutCreate.errors.length > 0 || !result.checkoutCreate.checkout) {
       throw new Error(

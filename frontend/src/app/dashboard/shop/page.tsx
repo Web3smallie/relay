@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 
@@ -25,31 +25,264 @@ type Constraints = {
 type SearchResult = {
   constraints: Constraints;
   totalFound: number;
-  recommendation: { product: Product; reasons: string[]; checkoutUrl: string | null } | null;
+  recommendation: {
+    product: Product;
+    reasons: string[];
+    checkoutId: string | null;
+    totalPrice: number | null;
+  } | null;
   alternatives: Product[];
+  needsAddress?: string | null;
+};
+
+type LogEntry = {
+  text: string;
+  status: "active" | "done" | "error";
 };
 
 const EXAMPLES = [
-  "Find me the cheapest snowboard under $800",
-  "I need a snowboard under $700, in stock",
-  "What's the best value snowboard you can find?",
+  "Buy me the cheapest apple juice",
+  "Buy me a tee under $30",
+  "Find the best value shirt and buy it",
 ];
+
+function ConstraintTags({ c }: { c: Constraints }) {
+  const tags: string[] = [];
+  if (c.productQuery) tags.push(c.productQuery);
+  if (c.maxPrice !== null) tags.push(`under $${c.maxPrice}`);
+  if (c.deliveryDeadline) tags.push(c.deliveryDeadline);
+  if (c.minRating !== null) tags.push(`${c.minRating}+ rating`);
+
+  return (
+    <div className="flex flex-wrap gap-2">
+      {tags.map((t) => (
+        <span
+          key={t}
+          className="rounded-full border border-neutral-700 px-3 py-1 text-xs text-neutral-300"
+        >
+          {t}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+function AgentLog({ entries }: { entries: LogEntry[] }) {
+  return (
+    <div className="mb-6 max-w-xl space-y-2 rounded-xl border border-neutral-800 bg-neutral-900/50 p-4">
+      {entries.map((entry, i) => (
+        <div key={i} className="flex items-start gap-2 text-sm">
+          <span className="mt-0.5">
+            {entry.status === "done" && <span className="text-green-500">✓</span>}
+            {entry.status === "active" && (
+              <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-white" />
+            )}
+            {entry.status === "error" && <span className="text-red-500">✕</span>}
+          </span>
+          <span
+            className={
+              entry.status === "error"
+                ? "text-red-400"
+                : entry.status === "active"
+                ? "text-white"
+                : "text-neutral-400"
+            }
+          >
+            {entry.text}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function ProductCard({
+  product,
+  isRecommended,
+  reasons,
+  checkoutId,
+}: {
+  product: Product;
+  isRecommended?: boolean;
+  reasons?: string[];
+  checkoutId?: string | null;
+}) {
+  const [payStatus, setPayStatus] = useState<
+    "idle" | "paying" | "confirming" | "success" | "error"
+  >("idle");
+  const [payLog, setPayLog] = useState<LogEntry[]>([]);
+
+  const hasTriggeredRef = useRef(false);
+
+  useEffect(() => {
+    if (isRecommended && checkoutId && !hasTriggeredRef.current) {
+      hasTriggeredRef.current = true;
+      handlePay();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isRecommended, checkoutId]);
+
+  async function handlePay() {
+    if (!checkoutId) return;
+    setPayStatus("paying");
+    setPayLog([{ text: "Initiating Relay Programmable Payment — sending USDC from your wallet...", status: "active" }]);
+
+    const { data } = await supabase.auth.getSession();
+    if (!data.session) return;
+
+    try {
+      const payRes = await fetch("http://localhost:4000/agent/pay", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId: data.session.user.id, checkoutId }),
+      });
+
+      const payJson = await payRes.json();
+
+      if (!payRes.ok) {
+        setPayLog((prev) => [
+          { ...prev[0], status: "done" },
+          { text: payJson.error || "Payment failed", status: "error" },
+        ]);
+        setPayStatus("error");
+        return;
+      }
+      setPayLog((prev) => [
+        { ...prev[0], status: "done" },
+        { text: `Payment sent via Relay Programmable Payment — tx ${payJson.paymentHash.slice(0, 10)}...`, status: "done" },
+        { text: "Confirming payment on-chain with merchant...", status: "active" },
+      ]);
+      setPayStatus("confirming");
+
+      const processRes = await fetch("http://localhost:4000/saleor-payment-process-trigger", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ transactionId: payJson.transactionId }),
+      });
+
+      const processJson = await processRes.json();
+
+      setPayLog((prev) => {
+        const updated = [...prev];
+        updated[updated.length - 1] = { ...updated[updated.length - 1], status: "done" };
+        return [...updated, { text: "Order placed with merchant", status: "done" }];
+      });
+      setPayStatus("success");
+    } catch {
+      setPayLog((prev) => [...prev, { text: "Something went wrong", status: "error" }]);
+      setPayStatus("error");
+    }
+  }
+
+  return (
+    <div
+      className={`rounded-xl border p-4 transition ${
+        isRecommended
+          ? "border-neutral-600 bg-neutral-900"
+          : "border-neutral-800 bg-neutral-900/50"
+      }`}
+    >
+      {isRecommended && (
+        <p className="mb-2 inline-block rounded-full bg-white px-2 py-0.5 text-xs font-medium text-black">
+          Recommended — I'm buying this one
+        </p>
+      )}
+
+      {product.imageUrl && (
+        <img
+          src={product.imageUrl}
+          alt={product.title}
+          className="mb-3 h-40 w-full rounded-lg object-cover"
+        />
+      )}
+
+      <p className="font-medium text-white">{product.title}</p>
+      <p className="mb-2 text-lg font-semibold text-white">
+        ${product.price.toFixed(2)} {product.currency}
+      </p>
+
+      {reasons && (
+        <div className="mb-3">
+          <p className="mb-1 text-xs font-medium text-neutral-500">Why I picked this:</p>
+          <ul className="space-y-1">
+            {reasons.map((r, i) => (
+              <li key={i} className="text-xs text-neutral-400">
+                • {r}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {isRecommended && (
+        <div className="mt-2">
+          {payStatus !== "idle" && (
+            <div className="space-y-1.5 rounded-lg border border-neutral-800 bg-neutral-950 p-3">
+              {payLog.map((entry, i) => (
+                <div key={i} className="flex items-start gap-2 text-xs">
+                  <span className="mt-0.5">
+                    {entry.status === "done" && <span className="text-green-500">✓</span>}
+                    {entry.status === "active" && (
+                      <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-white" />
+                    )}
+                    {entry.status === "error" && <span className="text-red-500">✕</span>}
+                  </span>
+                  <span
+                    className={
+                      entry.status === "error"
+                        ? "text-red-400"
+                        : entry.status === "active"
+                        ? "text-white"
+                        : "text-neutral-400"
+                    }
+                  >
+                    {entry.text}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default function ShopPage() {
   const [request, setRequest] = useState("");
-  const [stage, setStage] = useState<"idle" | "parsing" | "searching" | "done">("idle");
+  const [stage, setStage] = useState<"idle" | "working" | "done">("idle");
+  const [log, setLog] = useState<LogEntry[]>([]);
   const [constraints, setConstraints] = useState<Constraints | null>(null);
-  const [totalFound, setTotalFound] = useState<number | null>(null);
   const [result, setResult] = useState<SearchResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [userId, setUserId] = useState<string | null>(null);
+
+  // Address pause/resume state
+  const [pendingAddressLabel, setPendingAddressLabel] = useState<string | null>(null);
+  const [addressText, setAddressText] = useState("");
+  const [savingAddress, setSavingAddress] = useState(false);
+
   const router = useRouter();
 
+  function updateLastLog(status: LogEntry["status"]) {
+    setLog((prev) => {
+      const updated = [...prev];
+      if (updated.length > 0) updated[updated.length - 1] = { ...updated[updated.length - 1], status };
+      return updated;
+    });
+  }
+
+  function addLog(text: string, status: LogEntry["status"] = "active") {
+    setLog((prev) => [...prev, { text, status }]);
+  }
+
   async function runSearch(text: string) {
-    setStage("parsing");
+    setStage("working");
     setError(null);
     setResult(null);
     setConstraints(null);
-    setTotalFound(null);
+    setPendingAddressLabel(null);
+    setLog([]);
 
     const { data } = await supabase.auth.getSession();
     if (!data.session) {
@@ -57,7 +290,23 @@ export default function ShopPage() {
       return;
     }
 
+    const uid = data.session.user.id;
+    setUserId(uid);
+
+    addLog("Checking your wallet...");
+    const walletRes = await fetch(`http://localhost:4000/wallet/for-user/${uid}`);
+    if (!walletRes.ok) {
+      updateLastLog("error");
+      setError("No wallet found for your account.");
+      setStage("idle");
+      return;
+    }
+    const walletJson = await walletRes.json();
+    const payerAddress = walletJson.address;
+    updateLastLog("done");
+
     try {
+      addLog("Understanding your request...");
       const parseRes = await fetch("http://localhost:4000/agent/parse", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -66,35 +315,121 @@ export default function ShopPage() {
       const parseJson = await parseRes.json();
 
       if (!parseRes.ok) {
+        updateLastLog("error");
         setError(parseJson.error || "Could not understand that request");
         setStage("idle");
         return;
       }
 
+      updateLastLog("done");
       setConstraints(parseJson.constraints);
-      setStage("searching");
 
+      addLog("Searching the merchant catalog...");
       const searchRes = await fetch("http://localhost:4000/agent/search-with-constraints", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ constraints: parseJson.constraints }),
+        body: JSON.stringify({ constraints: parseJson.constraints, payerAddress, userId: uid }),
       });
-      const searchJson = await searchRes.json();
+      const searchJson: SearchResult = await searchRes.json();
 
       if (!searchRes.ok) {
-        setError(searchJson.error || "Search failed");
+        updateLastLog("error");
+        setError((searchJson as any).error || "Search failed");
         setStage("idle");
         return;
       }
 
-      setTotalFound(searchJson.totalFound);
-      await new Promise((r) => setTimeout(r, 500));
+      // Agent needs a delivery address it doesn't have yet — pause here
+      if (searchJson.needsAddress) {
+        updateLastLog("done");
+        addLog(`I don't have an address saved for "${searchJson.needsAddress}" yet — what's the address?`, "active");
+        setPendingAddressLabel(searchJson.needsAddress);
+        setStage("working");
+        return;
+      }
+
+      updateLastLog("done");
+      addLog(`Found ${searchJson.totalFound} matching product${searchJson.totalFound === 1 ? "" : "s"}`, "done");
+      addLog("Evaluating price, availability, and fit...", "active");
+
+      await new Promise((r) => setTimeout(r, 600));
+      updateLastLog("done");
+
+      if (searchJson.recommendation) {
+        addLog(`Decided on "${searchJson.recommendation.product.title}" — preparing checkout...`, "active");
+        await new Promise((r) => setTimeout(r, 400));
+        updateLastLog("done");
+      }
 
       setResult(searchJson);
       setStage("done");
     } catch {
+      updateLastLog("error");
       setError("Could not reach the server. Is the backend running?");
       setStage("idle");
+    }
+  }
+
+  async function handleAddressSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!addressText.trim() || !pendingAddressLabel || !userId) return;
+
+    setSavingAddress(true);
+    updateLastLog("done");
+    addLog("Parsing that address...", "active");
+
+    try {
+      const parseAddrRes = await fetch("http://localhost:4000/agent/parse-address", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ addressText }),
+      });
+      const parseAddrJson = await parseAddrRes.json();
+
+      if (!parseAddrRes.ok) {
+        updateLastLog("error");
+        setError(parseAddrJson.error || "Could not understand that address");
+        setSavingAddress(false);
+        return;
+      }
+
+      updateLastLog("done");
+      addLog(`Saving this as your "${pendingAddressLabel}" address...`, "active");
+
+      const saveRes = await fetch("http://localhost:4000/addresses", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          userId,
+          label: pendingAddressLabel,
+          street: parseAddrJson.address.street,
+          city: parseAddrJson.address.city,
+          state: parseAddrJson.address.state,
+          postalCode: parseAddrJson.address.zip,
+          country: parseAddrJson.address.country,
+        }),
+      });
+
+      if (!saveRes.ok) {
+        updateLastLog("error");
+        setError("Could not save that address");
+        setSavingAddress(false);
+        return;
+      }
+
+      updateLastLog("done");
+      addLog("Resuming your order...", "active");
+
+      const resumedText = request;
+      setPendingAddressLabel(null);
+      setAddressText("");
+      setSavingAddress(false);
+
+      runSearch(resumedText);
+    } catch {
+      updateLastLog("error");
+      setError("Something went wrong saving that address");
+      setSavingAddress(false);
     }
   }
 
@@ -106,109 +441,6 @@ export default function ShopPage() {
 
   const hasSearched = stage !== "idle" || error !== null;
 
-  function ConstraintTags({ c }: { c: Constraints }) {
-    const tags: string[] = [];
-    if (c.productQuery) tags.push(c.productQuery);
-    if (c.maxPrice !== null) tags.push(`under $${c.maxPrice}`);
-    if (c.deliveryDeadline) tags.push(c.deliveryDeadline);
-    if (c.minRating !== null) tags.push(`${c.minRating}+ rating`);
-
-    return (
-      <div className="flex flex-wrap gap-2">
-        {tags.map((t, i) => (
-          <span
-            key={t}
-            className="animate-fade-in-up rounded-full border border-neutral-700 px-3 py-1 text-xs text-neutral-300"
-            style={{ animationDelay: `${i * 120}ms` }}
-          >
-            {t}
-          </span>
-        ))}
-      </div>
-    );
-  }
-
-  function ProductCard({
-    product,
-    isRecommended,
-    reasons,
-    checkoutUrl,
-    delayMs,
-  }: {
-    product: Product;
-    isRecommended?: boolean;
-    reasons?: string[];
-    checkoutUrl?: string | null;
-    delayMs?: number;
-  }) {
-    return (
-      <div
-        className={`animate-fade-in-up rounded-xl border p-4 transition ${
-          isRecommended
-            ? "border-neutral-600 bg-neutral-900"
-            : "border-neutral-800 bg-neutral-900/50"
-        }`}
-        style={{ animationDelay: `${delayMs ?? 0}ms` }}
-      >
-        {isRecommended && (
-          <p className="mb-2 inline-block rounded-full bg-white px-2 py-0.5 text-xs font-medium text-black">
-            Recommended
-          </p>
-        )}
-
-        {product.imageUrl && (
-          <img
-            src={product.imageUrl}
-            alt={product.title}
-            className="mb-3 h-40 w-full rounded-lg object-cover"
-          />
-        )}
-
-        <p className="font-medium text-white">{product.title}</p>
-        <p className="mb-2 text-lg font-semibold text-white">
-          ${product.price.toFixed(2)} {product.currency}
-        </p>
-
-        {reasons && (
-          <ul className="mb-3 space-y-1">
-            {reasons.map((r, i) => (
-              <li
-                key={i}
-                className="animate-fade-in-up text-xs text-neutral-400"
-                style={{ animationDelay: `${(delayMs ?? 0) + 150 + i * 100}ms` }}
-              >
-                • {r}
-              </li>
-            ))}
-          </ul>
-        )}
-
-        {isRecommended && (
-          <div
-            className="animate-fade-in-up mt-2"
-            style={{ animationDelay: `${(delayMs ?? 0) + 600}ms` }}
-          >
-            {checkoutUrl ? (
-              
-                <a href={checkoutUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="block w-full rounded-lg bg-white py-2 text-center text-sm font-medium text-black hover:bg-neutral-200"
-              >
-                Checkout ready — open cart
-              </a>
-            ) : (
-              <div className="flex items-center justify-center gap-2 rounded-lg border border-neutral-700 py-2 text-sm text-neutral-400">
-                <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-neutral-400" />
-                Creating cart...
-              </div>
-            )}
-          </div>
-        )}
-      </div>
-    );
-  }
-
   if (!hasSearched) {
     return (
       <div className="flex min-h-[70vh] flex-col items-center justify-center px-4 text-center">
@@ -216,7 +448,7 @@ export default function ShopPage() {
           Relay Agent
         </p>
         <h1 className="mb-8 max-w-xl text-3xl font-semibold text-white">
-          What do you want to buy?
+          What services do you require?
         </h1>
 
         <form onSubmit={handleSubmit} className="w-full max-w-xl">
@@ -226,7 +458,7 @@ export default function ShopPage() {
               autoFocus
               value={request}
               onChange={(e) => setRequest(e.target.value)}
-              placeholder="Find me the cheapest snowboard under $800"
+              placeholder="Buy me the cheapest apple juice"
               className="flex-1 bg-transparent text-white outline-none placeholder:text-neutral-600"
             />
             <button
@@ -234,7 +466,7 @@ export default function ShopPage() {
               disabled={!request.trim()}
               className="ml-3 rounded-lg bg-white px-4 py-2 text-sm font-medium text-black hover:bg-neutral-200 disabled:opacity-40"
             >
-              Search
+              Go
             </button>
           </div>
         </form>
@@ -269,66 +501,70 @@ export default function ShopPage() {
           />
           <button
             type="submit"
-            disabled={stage === "parsing" || stage === "searching" || !request.trim()}
+            disabled={stage === "working" || !request.trim()}
             className="ml-3 rounded-lg bg-white px-4 py-2 text-sm font-medium text-black hover:bg-neutral-200 disabled:opacity-50"
           >
-            {stage === "parsing" || stage === "searching" ? "Working..." : "Search"}
+            {stage === "working" ? "Working..." : "Go"}
           </button>
         </div>
       </form>
 
       {error && <p className="text-red-400">{error}</p>}
 
-      {stage === "parsing" && (
-        <div className="flex items-center gap-2 text-neutral-400">
-          <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-white" />
-          <p>Understanding your request...</p>
-        </div>
+      {log.length > 0 && <AgentLog entries={log} />}
+
+      {pendingAddressLabel && (
+        <form onSubmit={handleAddressSubmit} className="mb-6 max-w-xl">
+          <div className="flex items-center rounded-xl border border-neutral-700 bg-neutral-900 px-4 py-3 focus-within:border-neutral-500">
+            <span className="mr-2 text-neutral-600">›</span>
+            <input
+              autoFocus
+              value={addressText}
+              onChange={(e) => setAddressText(e.target.value)}
+              placeholder="e.g. 23 Demo Street, New York, NY 10001"
+              className="flex-1 bg-transparent text-white outline-none placeholder:text-neutral-600"
+              disabled={savingAddress}
+            />
+            <button
+              type="submit"
+              disabled={!addressText.trim() || savingAddress}
+              className="ml-3 rounded-lg bg-white px-4 py-2 text-sm font-medium text-black hover:bg-neutral-200 disabled:opacity-40"
+            >
+              {savingAddress ? "Saving..." : "Send"}
+            </button>
+          </div>
+        </form>
       )}
 
-      {constraints && (stage === "searching" || stage === "done") && (
+      {constraints && (
         <div className="mb-4">
           <ConstraintTags c={constraints} />
         </div>
-      )}
-
-      {stage === "searching" && totalFound === null && (
-        <div className="flex items-center gap-2 text-neutral-400">
-          <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-white" />
-          <p>Searching real merchants...</p>
-        </div>
-      )}
-
-      {stage === "searching" && totalFound !== null && (
-        <p className="animate-fade-in-up text-neutral-400">
-          Found {totalFound} matching {totalFound === 1 ? "product" : "products"}. Evaluating best option...
-        </p>
       )}
 
       {stage === "done" && result && !result.recommendation && (
         <p className="text-neutral-500">No matching products found.</p>
       )}
 
-      {stage === "done" && result?.recommendation && (
+      {result?.recommendation && (
         <div>
           <div className="mb-6 max-w-sm">
             <ProductCard
               product={result.recommendation.product}
               isRecommended
               reasons={result.recommendation.reasons}
-              checkoutUrl={result.recommendation.checkoutUrl}
-              delayMs={0}
+              checkoutId={result.recommendation.checkoutId}
             />
           </div>
 
           {result.alternatives.length > 0 && (
             <>
               <h3 className="mb-3 text-sm font-medium text-neutral-400">
-                Other options
+                Other options I considered
               </h3>
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                {result.alternatives.map((p, i) => (
-                  <ProductCard key={p.id} product={p} delayMs={150 + i * 100} />
+                {result.alternatives.map((p) => (
+                  <ProductCard key={p.id} product={p} />
                 ))}
               </div>
             </>

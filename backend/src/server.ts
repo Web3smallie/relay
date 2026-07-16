@@ -155,12 +155,12 @@ app.post("/agent/search", async (req, res) => {
 
 app.post("/agent/search-with-constraints", async (req, res) => {
   try {
-    const { constraints } = req.body;
+    const { constraints, payerAddress, userId } = req.body;
     if (!constraints) {
       return res.status(400).json({ error: "constraints is required" });
     }
 
-    const result = await searchWithConstraints(constraints);
+    const result = await searchWithConstraints(constraints, payerAddress, userId);
     res.json(result);
   } catch (error) {
     res.status(500).json({ error: (error as Error).message });
@@ -295,3 +295,61 @@ app.post("/agent/pay", async (req, res) => {
     res.status(500).json({ error: (error as Error).message });
   }
 });
+
+app.post("/agent/parse-address", async (req, res) => {
+  try {
+    const { addressText } = req.body;
+    if (!addressText) {
+      return res.status(400).json({ error: "addressText is required" });
+    }
+
+    const { parseAddress } = await import("./agent/constraintParser.js");
+    const address = await parseAddress(addressText);
+    res.json({ address });
+  } catch (error) {
+    res.status(500).json({ error: (error as Error).message });
+  }
+});
+
+app.post("/saleor-payment-process-trigger", async (req, res) => {
+  try {
+    const { transactionId } = req.body;
+    if (!transactionId) {
+      return res.status(400).json({ error: "transactionId is required" });
+    }
+
+    const { GraphQLClient, gql } = await import("graphql-request");
+    const client = new GraphQLClient(process.env.SALEOR_API_URL as string, {
+      headers: { Authorization: `Bearer ${process.env.SALEOR_APP_TOKEN}` },
+    });
+
+    const mutation = gql`
+      mutation TransactionProcess($id: ID!) {
+        transactionProcess(id: $id) {
+          transaction {
+            id
+          }
+          data
+          errors {
+            field
+            message
+          }
+        }
+      }
+    `;
+
+    const result: any = await client.request(mutation, { id: transactionId });
+
+    if (result.transactionProcess.errors.length > 0) {
+      return res.status(500).json({ error: result.transactionProcess.errors });
+    }
+
+    res.json({
+      success: true,
+      message: result.transactionProcess.data?.message ?? null,
+    });
+  } catch (error) {
+    res.status(500).json({ error: (error as Error).message });
+  }
+});
+
