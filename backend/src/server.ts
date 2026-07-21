@@ -17,6 +17,7 @@ import { SaleorAdapter } from "./merchants/SaleorAdapter";
 import saleorPaymentRoutes from "./routes/saleorPayment";
 import { initiatePayment } from "./agent/executePayment";
 import { sendUsdcPayment } from "./agent/sendPayment";
+import { RelayAPP } from "./core/app/RelayAPP";
 
 dotenv.config();
 
@@ -266,6 +267,7 @@ app.post("/saleor-select-shipping", async (req, res) => {
   }
 });
 
+
 app.post("/agent/pay", async (req, res) => {
   try {
     const { userId, checkoutId } = req.body;
@@ -274,11 +276,11 @@ app.post("/agent/pay", async (req, res) => {
       return res.status(400).json({ error: "userId and checkoutId are required" });
     }
 
-    // Step 1: Initialize the transaction with Saleor, get real total + treasury address
-    const initiation = await initiatePayment(checkoutId);
+    const app_ = new RelayAPP();
 
-    // Step 2: Send the real USDC payment from this user's real wallet
-    const payment = await sendUsdcPayment(
+    const initiation = await app_.authorize(checkoutId);
+
+    const payment = await app_.execute(
       userId,
       initiation.treasuryAddress,
       initiation.expectedAmount
