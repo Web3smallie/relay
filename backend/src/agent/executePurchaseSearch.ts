@@ -1,6 +1,6 @@
 import { supabaseAdmin } from "../supabaseAdmin";
 import { parseConstraints, PurchaseConstraints } from "./constraintParser";
-import { SaleorAdapter } from "../merchants/SaleorAdapter";
+import { SaleorACP } from "../core/acp/SaleorACP";
 import { Product } from "../merchants/MerchantAdapter";
 import { GraphQLClient, gql } from "graphql-request";
 import dotenv from "dotenv";
@@ -121,7 +121,7 @@ export async function searchWithConstraints(
     }
   }
 
-  const adapter = new SaleorAdapter();
+  const adapter = new SaleorACP();
   const results = await adapter.search({
     query: constraints.productQuery,
     maxPrice: constraints.maxPrice ?? undefined,
@@ -142,7 +142,7 @@ export async function searchWithConstraints(
 
   try {
     const cart = await adapter.checkout(best.id, 1, payerAddress, undefined, resolvedAddress);
-    checkoutId = cart.checkoutUrl; // this is actually the checkout ID for Saleor
+    checkoutId = cart.checkoutId; // ACP's return shape names this checkoutId (same value Saleor's checkoutUrl held)
 
     // Automatically select the first available shipping method
     const methodsData: any = await client.request(GET_SHIPPING_METHODS_QUERY, { id: checkoutId });

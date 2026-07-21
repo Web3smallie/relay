@@ -78,9 +78,17 @@ export async function initiatePayment(checkoutId: string): Promise<PaymentInitia
     );
   }
 
+  const treasuryAddress = result.transactionInitialize.data?.treasuryAddress;
+
+  if (!treasuryAddress) {
+    throw new Error(
+      "Saleor did not return a treasuryAddress on transactionInitialize — the payment webhook may not have responded in time. Try again."
+    );
+  }
+
   return {
     transactionId: result.transactionInitialize.transaction.id,
-    treasuryAddress: result.transactionInitialize.data?.treasuryAddress ?? "",
+    treasuryAddress,
     expectedAmount: amount,
   };
 }
