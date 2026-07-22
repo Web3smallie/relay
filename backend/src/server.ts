@@ -18,6 +18,7 @@ import saleorPaymentRoutes from "./routes/saleorPayment";
 import { initiatePayment } from "./agent/executePayment";
 import { sendUsdcPayment } from "./agent/sendPayment";
 import { RelayAPP } from "./core/app/RelayAPP";
+import { ReloadlyACP } from "./core/acp/ReloadlyACP";
 
 dotenv.config();
 
@@ -355,3 +356,29 @@ app.post("/saleor-payment-process-trigger", async (req, res) => {
   }
 });
 
+app.post("/agent/topup", async (req, res) => {
+  try {
+    const { phoneNumber, countryCode, amount } = req.body;
+
+    if (!phoneNumber || !countryCode || !amount) {
+      return res.status(400).json({ error: "phoneNumber, countryCode, and amount are required" });
+    }
+
+    const acp = new ReloadlyACP();
+    const productKey = `${phoneNumber}:${countryCode}`;
+
+    // Confirms the operator exists before attempting to charge/send anything
+    const products = await acp.search({ query: productKey });
+
+    const result = await acp.checkout(productKey, amount);
+
+    res.json({
+      status: "completed",
+      operator: products[0]?.title,
+      amount,
+      transactionId: result.checkoutId,
+    });
+  } catch (error) {
+    res.status(500).json({ error: (error as Error).message });
+  }
+});
