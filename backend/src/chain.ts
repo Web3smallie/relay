@@ -1,29 +1,29 @@
 import { createPublicClient, http, formatEther, defineChain } from "viem";
 
-// X Layer Testnet — verified via OKX developer docs
-export const xLayerTestnet = defineChain({
-  id: 1952,
-  name: "X Layer Testnet",
+// Arc Testnet — Circle's stablecoin-native L1
+export const arcTestnet = defineChain({
+  id: 5042002,
+  name: "Arc Testnet",
   nativeCurrency: {
-    decimals: 18,
-    name: "OKB",
-    symbol: "OKB",
+    decimals: 18, // native gas representation — see note below
+    name: "USDC",
+    symbol: "USDC",
   },
   rpcUrls: {
     default: {
-      http: ["https://testrpc.xlayer.tech/terigon"],
+      http: ["https://rpc.testnet.arc.network"],
     },
   },
   blockExplorers: {
     default: {
-      name: "X Layer Explorer",
-      url: "https://www.okx.com/web3/explorer/xlayer-test",
+      name: "ArcScan",
+      url: "https://testnet.arcscan.app",
     },
   },
 });
 
 export const publicClient = createPublicClient({
-  chain: xLayerTestnet,
+  chain: arcTestnet,
   transport: http(),
 });
 

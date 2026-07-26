@@ -1,5 +1,5 @@
 import { createPublicClient, http, parseAbiItem, formatUnits } from "viem";
-import { xLayerTestnet } from "../chain";
+import { arcTestnet } from "../chain";
 import dotenv from "dotenv";
 
 dotenv.config();
@@ -8,7 +8,7 @@ const usdcAddress = process.env.USDC_CONTRACT_ADDRESS as `0x${string}`;
 const treasuryAddress = process.env.RELAY_TREASURY_ADDRESS as `0x${string}`;
 
 const client = createPublicClient({
-  chain: xLayerTestnet,
+  chain: arcTestnet,
   transport: http(),
 });
 
@@ -16,7 +16,11 @@ const TRANSFER_EVENT = parseAbiItem(
   "event Transfer(address indexed from, address indexed to, uint256 value)"
 );
 
-const MAX_BLOCK_RANGE = 99n; // this RPC enforces a 100-block max range
+// This 99-block chunk size was confirmed necessary for X Layer's testnet RPC
+// range limit. Arc's actual limit hasn't been confirmed yet — keeping this
+// conservative value is safe even if Arc allows a larger range (just less
+// efficient); revisit if Arc's docs specify a different real limit.
+const MAX_BLOCK_RANGE = 99n;
 
 /**
  * Checks for a real USDC Transfer event sent TO our treasury wallet FROM the

@@ -1,6 +1,6 @@
 import { createWalletClient, http, parseUnits } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
-import { xLayerTestnet } from "./chain";
+import { arcTestnet } from "./chain";
 import dotenv from "dotenv";
 
 dotenv.config();
@@ -17,7 +17,7 @@ async function main() {
 
   const client = createWalletClient({
     account,
-    chain: xLayerTestnet,
+    chain: arcTestnet,
     transport: http(),
   });
 
