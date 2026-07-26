@@ -4,3 +4,10 @@ dist/
 echo .agents/ >> .gitignore
 echo .claude/ >> .gitignore
 echo skills-lock.json >> .gitignore
+cd C:\Users\USER\relay
+echo .agents/ >> .gitignore
+echo .claude/ >> .gitignore
+echo skills-lock.json >> .gitignore
+git add .gitignore
+git commit -m "Ignore local agent tooling at repo root"
+git push
