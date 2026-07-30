@@ -120,12 +120,17 @@ export async function searchWithConstraints(
       };
     }
   }
-
-  const adapter = new SaleorACP();
-  const results = await adapter.search({
+const adapter = new SaleorACP();
+let results;
+try {
+  results = await adapter.search({
     query: constraints.productQuery,
     maxPrice: constraints.maxPrice ?? undefined,
   });
+} catch (searchErr) {
+  console.error("SEARCH FAILED — full error:", searchErr);
+  throw searchErr;
+}
 
   const available = results.filter((p) => p.available);
   const sorted = available.sort((a, b) => a.price - b.price);

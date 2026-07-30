@@ -8,7 +8,6 @@ import profileRoutes from "./routes/profile";
 import addressRoutes from "./routes/addresses";
 import { getBalance } from "./chain";
 import { createWallet } from "./wallet";
-import { encrypt } from "./crypto";
 import { ShopifyAdapter } from "./merchants/ShopifyAdapter";
 import { parseConstraints } from "./agent/constraintParser";
 import { executePurchaseSearch } from "./agent/executePurchaseSearch";
@@ -19,6 +18,7 @@ import { initiatePayment } from "./agent/executePayment";
 import { sendUsdcPayment } from "./agent/sendPayment";
 import { RelayAPP } from "./core/app/RelayAPP";
 import { ReloadlyACP } from "./core/acp/ReloadlyACP";
+import { markPaymentVerified } from "./verifiedPaymentsCache";
 
 
 dotenv.config();
@@ -96,8 +96,7 @@ app.post("/wallet/create-for-user", async (req, res) => {
     const { error } = await supabaseAdmin.from("wallets").insert({
       user_id: userId,
       address: wallet.address,
-      encrypted_private_key: encrypt(wallet.privateKey),
-      encrypted_mnemonic: encrypt(wallet.mnemonic),
+      circle_wallet_id: wallet.circleWalletId,
     });
 
     if (error) {
@@ -225,7 +224,6 @@ app.post("/saleor-select-shipping", async (req, res) => {
       headers: { Authorization: `Bearer ${process.env.SALEOR_APP_TOKEN}` },
     });
 
-    // Get available shipping methods now that address is set
     const methodsQuery = gql`
       query GetShippingMethods($id: ID!) {
         checkout(id: $id) {
@@ -287,6 +285,12 @@ app.post("/agent/pay", async (req, res) => {
       initiation.treasuryAddress,
       initiation.expectedAmount
     );
+
+    markPaymentVerified(initiation.transactionId, {
+      payerAddress: payment.payerAddress,
+      hash: payment.hash,
+      amount: initiation.expectedAmount,
+    });
 
     res.json({
       transactionId: initiation.transactionId,
@@ -368,7 +372,6 @@ app.post("/agent/topup", async (req, res) => {
     const acp = new ReloadlyACP();
     const productKey = `${phoneNumber}:${countryCode}`;
 
-    // Confirms the operator exists before attempting to charge/send anything
     const products = await acp.search({ query: productKey });
 
     const result = await acp.checkout(productKey, amount);

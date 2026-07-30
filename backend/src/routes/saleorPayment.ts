@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { GraphQLClient, gql } from "graphql-request";
 import { verifyUsdcPayment } from "../agent/verifyPayment";
+import { getVerifiedPayment, clearVerifiedPayment } from "../verifiedPaymentsCache";
 
 const router = Router();
 
@@ -112,7 +113,18 @@ router.post("/transaction-process", async (req, res) => {
   }
 
   try {
-    const isPaid = await verifyUsdcPayment(payerAddress, amount);
+    // Fast path: if /agent/pay already confirmed this exact payment via
+    // Circle a moment ago, trust that instead of re-scanning the chain.
+    const cached = transactionId ? getVerifiedPayment(transactionId) : undefined;
+
+    let isPaid: boolean;
+    if (cached) {
+      console.log("Using cached Circle-confirmed payment, skipping on-chain log scan");
+      isPaid = true;
+      clearVerifiedPayment(transactionId);
+    } else {
+      isPaid = await verifyUsdcPayment(payerAddress, amount);
+    }
 
     if (isPaid) {
       // Respond to Saleor immediately so it records the charge —

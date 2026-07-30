@@ -2,7 +2,6 @@ import { Router } from "express";
 import { supabase } from "../supabaseClient";
 import { supabaseAdmin } from "../supabaseAdmin";
 import { createWallet } from "../wallet";
-import { encrypt } from "../crypto";
 
 const router = Router();
 
@@ -15,18 +14,19 @@ router.post("/signup", async (req, res) => {
   }
 
   const { data, error } = await supabase.auth.signUp({
-  email,
-  password,
-  options: {
-    emailRedirectTo: "http://localhost:3000/auth/callback",
-  },
-});
+    email,
+    password,
+    options: {
+      emailRedirectTo: "http://localhost:3000/auth/callback",
+    },
+  });
 
   if (error) {
     return res.status(400).json({ error: error.message });
   }
 
   const userId = data.user?.id;
+  let walletCreated = false;
 
   if (userId) {
     // Create profile
@@ -46,12 +46,13 @@ router.post("/signup", async (req, res) => {
       const { error: walletError } = await supabaseAdmin.from("wallets").insert({
         user_id: userId,
         address: wallet.address,
-        encrypted_private_key: encrypt(wallet.privateKey),
-        encrypted_mnemonic: encrypt(wallet.mnemonic),
+        circle_wallet_id: wallet.circleWalletId,
       });
 
       if (walletError) {
         console.error("Failed to save wallet:", walletError.message);
+      } else {
+        walletCreated = true;
       }
     } catch (walletCreationError) {
       console.error("Failed to create wallet:", walletCreationError);
@@ -61,7 +62,10 @@ router.post("/signup", async (req, res) => {
   res.json({
     user: data.user,
     session: data.session,
-    message: "Signup successful. Please check your email to verify your account.",
+    walletCreated,
+    message: walletCreated
+      ? "Signup successful."
+      : "Signup successful, but wallet creation failed — please retry from your account settings.",
   });
 });
 

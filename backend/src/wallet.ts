@@ -1,22 +1,36 @@
-import { bip39 } from "@okxweb3/crypto-lib";
-import { EthWallet } from "@okxweb3/coin-ethereum";
+import { initiateDeveloperControlledWalletsClient } from "@circle-fin/developer-controlled-wallets";
+import dotenv from "dotenv";
 
+dotenv.config();
+
+const client = initiateDeveloperControlledWalletsClient({
+  apiKey: process.env.CIRCLE_API_KEY as string,
+  entitySecret: process.env.CIRCLE_ENTITY_SECRET as string,
+});
+
+const WALLET_SET_ID = process.env.CIRCLE_WALLET_SET_ID as string;
+
+/**
+ * Creates a new Circle-custodied wallet for a user on Arc Testnet. Circle
+ * holds and manages the private key entirely — Relay never generates,
+ * sees, or stores a raw private key or mnemonic anymore.
+ */
 export async function createWallet() {
-  const wallet = new EthWallet();
+  const response = await client.createWallets({
+    walletSetId: WALLET_SET_ID,
+    blockchains: ["ARC-TESTNET"],
+    accountType: "SCA",
+    count: 1,
+  });
 
-  // Generate a new mnemonic (the wallet's recovery phrase)
-  const mnemonic = await bip39.generateMnemonic();
+  const wallet = response.data?.wallets?.[0];
 
-  // Derive the wallet's private key from the mnemonic
-  const hdPath = await wallet.getDerivedPath({ index: 0 });
-  const privateKey = await wallet.getDerivedPrivateKey({ mnemonic, hdPath });
-
-  // Get the public wallet address from the private key
-  const newAddress = await wallet.getNewAddress({ privateKey });
+  if (!wallet) {
+    throw new Error("Circle did not return a wallet");
+  }
 
   return {
-    address: newAddress.address,
-    privateKey,
-    mnemonic,
+    circleWalletId: wallet.id,
+    address: wallet.address,
   };
 }
