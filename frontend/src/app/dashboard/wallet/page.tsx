@@ -64,7 +64,7 @@ export default function WalletPage() {
         <p className="mb-4 break-all font-mono text-sm text-white">{address}</p>
 
         <p className="mb-1 text-sm text-neutral-400">Balance</p>
-        <p className="text-2xl font-semibold text-white">{balance} OKB</p>
+        <p className="text-2xl font-semibold text-white">{balance} USDC</p>
       </div>
     </div>
   );

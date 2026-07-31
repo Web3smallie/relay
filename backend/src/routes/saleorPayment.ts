@@ -2,6 +2,7 @@ import { Router } from "express";
 import { GraphQLClient, gql } from "graphql-request";
 import { verifyUsdcPayment } from "../agent/verifyPayment";
 import { getVerifiedPayment, clearVerifiedPayment } from "../verifiedPaymentsCache";
+import { mintReceipt } from "../agent/mintReceipt";
 
 const router = Router();
 
@@ -166,6 +167,22 @@ router.post("/transaction-process", async (req, res) => {
                 "Order created:",
                 JSON.stringify(completeResult.checkoutComplete.order)
               );
+
+              // Mint a receipt NFT to the buyer — never let a mint failure
+              // undo or block the order, which is already real and paid.
+              try {
+                const order = completeResult.checkoutComplete.order;
+                await mintReceipt(payerAddress, {
+                  orderNumber: order?.number || "unknown",
+                  product: "Purchase",
+                  amount,
+                  currency: "USD",
+                });
+                console.log("Receipt NFT minted to", payerAddress);
+              } catch (mintError) {
+                console.error("Receipt mint failed (order still completed):", mintError);
+              }
+
               return;
             } catch (completeError) {
               console.error(`Checkout complete attempt ${attempt + 1} error:`, completeError);
