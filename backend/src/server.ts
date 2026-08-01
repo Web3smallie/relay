@@ -19,6 +19,7 @@ import { sendUsdcPayment } from "./agent/sendPayment";
 import { RelayAPP } from "./core/app/RelayAPP";
 import { ReloadlyACP } from "./core/acp/ReloadlyACP";
 import { markPaymentVerified } from "./verifiedPaymentsCache";
+import { getMintedReceipt } from "./mintedReceiptsCache";
 
 
 dotenv.config();
@@ -81,6 +82,11 @@ app.get("/wallet-status/:userId", async (req, res) => {
     .single();
 
   res.json({ hasWallet: !error && !!data });
+});
+
+app.get("/agent/receipt-status/:checkoutId", (req, res) => {
+  const receipt = getMintedReceipt(req.params.checkoutId);
+  res.json({ minted: !!receipt, receipt: receipt || null });
 });
 
 app.post("/wallet/create-for-user", async (req, res) => {

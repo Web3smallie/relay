@@ -122,6 +122,44 @@ function ProductCard({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isRecommended, checkoutId]);
 
+  async function pollForReceipt(cid: string) {
+    setPayLog((prev) => [...prev, { text: "Checking for your receipt NFT...", status: "active" }]);
+
+    const maxAttempts = 10;
+    for (let i = 0; i < maxAttempts; i++) {
+      await new Promise((r) => setTimeout(r, 2000));
+
+      try {
+        const res = await fetch(`http://localhost:4000/agent/receipt-status/${cid}`);
+        const json = await res.json();
+
+        if (json.minted && json.receipt) {
+          setPayLog((prev) => {
+            const updated = [...prev];
+            updated[updated.length - 1] = {
+              text: `Receipt NFT minted — tx ${json.receipt.transactionHash.slice(0, 10)}...`,
+              status: "done",
+            };
+            return updated;
+          });
+          return;
+        }
+      } catch {
+        // keep polling silently, network hiccups shouldn't spam the log
+      }
+    }
+
+    // Didn't find it in time — not an error, minting may just be slow
+    setPayLog((prev) => {
+      const updated = [...prev];
+      updated[updated.length - 1] = {
+        text: "Receipt NFT still processing — check your wallet shortly",
+        status: "done",
+      };
+      return updated;
+    });
+  }
+
   async function handlePay() {
     if (!checkoutId) return;
     setPayStatus("paying");
@@ -168,6 +206,8 @@ function ProductCard({
         return [...updated, { text: "Order placed with merchant", status: "done" }];
       });
       setPayStatus("success");
+
+      pollForReceipt(checkoutId);
     } catch {
       setPayLog((prev) => [...prev, { text: "Something went wrong", status: "error" }]);
       setPayStatus("error");
@@ -257,7 +297,6 @@ export default function ShopPage() {
   const [error, setError] = useState<string | null>(null);
   const [userId, setUserId] = useState<string | null>(null);
 
-  // Address pause/resume state
   const [pendingAddressLabel, setPendingAddressLabel] = useState<string | null>(null);
   const [addressText, setAddressText] = useState("");
   const [savingAddress, setSavingAddress] = useState(false);
@@ -339,7 +378,6 @@ export default function ShopPage() {
         return;
       }
 
-      // Agent needs a delivery address it doesn't have yet — pause here
       if (searchJson.needsAddress) {
         updateLastLog("done");
         addLog(`I don't have an address saved for "${searchJson.needsAddress}" yet — what's the address?`, "active");

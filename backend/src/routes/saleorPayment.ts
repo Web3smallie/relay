@@ -3,6 +3,7 @@ import { GraphQLClient, gql } from "graphql-request";
 import { verifyUsdcPayment } from "../agent/verifyPayment";
 import { getVerifiedPayment, clearVerifiedPayment } from "../verifiedPaymentsCache";
 import { mintReceipt } from "../agent/mintReceipt";
+import { markReceiptMinted } from "../mintedReceiptsCache";
 
 const router = Router();
 
@@ -142,6 +143,8 @@ router.post("/transaction-process", async (req, res) => {
 
       // Now attempt to complete the checkout in the background, with retries.
       if (checkoutId) {
+        const confirmedCheckoutId: string = checkoutId; // narrow once, use inside closure below
+
         (async () => {
           const maxRetries = 5;
           for (let attempt = 0; attempt < maxRetries; attempt++) {
@@ -153,7 +156,7 @@ router.post("/transaction-process", async (req, res) => {
                   order: { id: string; number: string; status: string } | null;
                   errors: { field: string; message: string }[];
                 };
-              }>(CHECKOUT_COMPLETE_MUTATION, { id: checkoutId });
+              }>(CHECKOUT_COMPLETE_MUTATION, { id: confirmedCheckoutId });
 
               if (completeResult.checkoutComplete.errors.length > 0) {
                 console.log(
@@ -172,13 +175,19 @@ router.post("/transaction-process", async (req, res) => {
               // undo or block the order, which is already real and paid.
               try {
                 const order = completeResult.checkoutComplete.order;
-                await mintReceipt(payerAddress, {
+                const mintResult = await mintReceipt(payerAddress, {
                   orderNumber: order?.number || "unknown",
                   product: "Purchase",
                   amount,
                   currency: "USD",
                 });
                 console.log("Receipt NFT minted to", payerAddress);
+
+                markReceiptMinted(confirmedCheckoutId, {
+                  contractAddress: process.env.RELAY_RECEIPT_CONTRACT_ADDRESS as string,
+                  transactionHash: mintResult.hash,
+                  mintedAt: new Date().toISOString(),
+                });
               } catch (mintError) {
                 console.error("Receipt mint failed (order still completed):", mintError);
               }
@@ -188,7 +197,7 @@ router.post("/transaction-process", async (req, res) => {
               console.error(`Checkout complete attempt ${attempt + 1} error:`, completeError);
             }
           }
-          console.error("Checkout complete failed after all retries for checkout:", checkoutId);
+          console.error("Checkout complete failed after all retries for checkout:", confirmedCheckoutId);
         })();
       }
 
