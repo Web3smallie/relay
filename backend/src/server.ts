@@ -20,7 +20,7 @@ import { RelayAPP } from "./core/app/RelayAPP";
 import { ReloadlyACP } from "./core/acp/ReloadlyACP";
 import { markPaymentVerified } from "./verifiedPaymentsCache";
 import { getMintedReceipt } from "./mintedReceiptsCache";
-
+import bridgeRoutes from "./routes/bridge";
 
 dotenv.config();
 
@@ -37,6 +37,7 @@ app.use("/auth", authRoutes);
 app.use("/", profileRoutes);
 app.use("/", addressRoutes);
 app.use("/saleor-payment", saleorPaymentRoutes);
+app.use("/wallet", bridgeRoutes);
 
 
 app.get("/health", (req, res) => {
