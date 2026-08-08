@@ -3,7 +3,7 @@ import { bridgeUsdcForUser } from "../bridgeUsdc";
 
 const router = Router();
 
-const SUPPORTED_CHAINS = ["ETH-SEPOLIA", "ARB-SEPOLIA", "BASE-SEPOLIA", "OP-SEPOLIA", "AVAX-FUJI"];
+const SUPPORTED_CHAINS = ["ARC-TESTNET", "ETH-SEPOLIA", "ARB-SEPOLIA", "BASE-SEPOLIA", "OP-SEPOLIA", "AVAX-FUJI"];
 
 function safeSerialize(obj: any) {
   return JSON.parse(
@@ -13,19 +13,25 @@ function safeSerialize(obj: any) {
 
 router.post("/bridge", async (req, res) => {
   try {
-    const { userId, destinationChain, amount } = req.body;
+    const { userId, sourceChain, destinationChain, amount } = req.body;
+
+    const source = sourceChain || "ARC-TESTNET"; // defaults to Arc as source, backward-compatible
 
     if (!userId || !destinationChain || !amount) {
       return res.status(400).json({ error: "userId, destinationChain, and amount are required" });
     }
 
-    if (!SUPPORTED_CHAINS.includes(destinationChain)) {
+    if (!SUPPORTED_CHAINS.includes(source) || !SUPPORTED_CHAINS.includes(destinationChain)) {
       return res.status(400).json({
-        error: `Unsupported destinationChain. Supported: ${SUPPORTED_CHAINS.join(", ")}`,
+        error: `Unsupported chain. Supported: ${SUPPORTED_CHAINS.join(", ")}`,
       });
     }
 
-    const result = await bridgeUsdcForUser(userId, destinationChain, amount.toString());
+    if (source === destinationChain) {
+      return res.status(400).json({ error: "sourceChain and destinationChain must differ" });
+    }
+
+    const result = await bridgeUsdcForUser(userId, source, destinationChain, amount.toString());
 
     console.log("Full bridge result steps:", JSON.stringify(safeSerialize(result.steps), null, 2));
 
@@ -33,7 +39,7 @@ router.post("/bridge", async (req, res) => {
       safeSerialize({
         status: result.state,
         amount: result.amount,
-        sourceChain: "ARC-TESTNET",
+        sourceChain: source,
         destinationChain,
         destinationAddress: result.destination.address,
         steps: result.steps,
