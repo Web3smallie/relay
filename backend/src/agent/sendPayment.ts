@@ -1,5 +1,6 @@
 import { initiateDeveloperControlledWalletsClient } from "@circle-fin/developer-controlled-wallets";
 import { supabaseAdmin } from "../supabaseAdmin";
+import { ensureArcLiquidity } from "../autoLiquidity";
 import dotenv from "dotenv";
 
 dotenv.config();
@@ -56,6 +57,7 @@ async function sendFromWallet(
  * (looked up by userId) to the given treasury address. This is the
  * existing customer-purchase flow, unchanged in behavior.
  */
+
 export async function sendUsdcPayment(
   userId: string,
   treasuryAddress: string,
@@ -70,6 +72,9 @@ export async function sendUsdcPayment(
   if (error || !walletRow) {
     throw new Error("No wallet found for this user");
   }
+
+  // Auto-bridge in liquidity from another chain if Arc balance is short
+  await ensureArcLiquidity(userId, walletRow.circle_wallet_id, amount);
 
   const { hash } = await sendFromWallet(walletRow.circle_wallet_id, treasuryAddress, amount);
   return { hash, payerAddress: walletRow.address };
