@@ -13,13 +13,7 @@ router.post("/signup", async (req, res) => {
     return res.status(400).json({ error: "Email and password are required" });
   }
 
-  const { data, error } = await supabase.auth.signUp({
-    email,
-    password,
-    options: {
-      emailRedirectTo: "http://localhost:3000/auth/callback",
-    },
-  });
+  const { data, error } = await supabase.auth.signUp({ email, password });
 
   if (error) {
     return res.status(400).json({ error: error.message });

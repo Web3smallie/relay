@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 
@@ -12,22 +12,7 @@ export default function LoginPage() {
   const [mode, setMode] = useState<"login" | "signup">("login");
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
-  const [signupComplete, setSignupComplete] = useState(false);
   const router = useRouter();
-
-  useEffect(() => {
-    if (!signupComplete) return;
-
-    const interval = setInterval(async () => {
-      const { data } = await supabase.auth.getSession();
-      if (data.session) {
-        clearInterval(interval);
-        router.push("/dashboard");
-      }
-    }, 3000);
-
-    return () => clearInterval(interval);
-  }, [signupComplete, router]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -46,8 +31,19 @@ export default function LoginPage() {
 
         if (!res.ok) {
           setMessage(json.error || "Signup failed");
+        } else if (json.session?.access_token && json.session?.refresh_token) {
+          const { error } = await supabase.auth.setSession({
+            access_token: json.session.access_token,
+            refresh_token: json.session.refresh_token,
+          });
+
+          if (error) {
+            setMessage(error.message);
+          } else {
+            router.push("/dashboard");
+          }
         } else {
-          setSignupComplete(true);
+          setMessage("Account created. Please sign in to continue.");
         }
       } catch {
         setMessage("Could not reach the server. Is the backend running?");
@@ -62,21 +58,6 @@ export default function LoginPage() {
     }
 
     setLoading(false);
-  }
-
-  if (signupComplete) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-neutral-950 px-4 text-center">
-        <div>
-          <h1 className="mb-2 text-2xl font-semibold text-white">Check your email</h1>
-          <p className="text-neutral-400">
-            We sent a confirmation link to <span className="text-white">{email}</span>.
-            <br />
-            Click it to activate your account.
-          </p>
-        </div>
-      </div>
-    );
   }
 
   return (
