@@ -1,17 +1,9 @@
 import { Router } from "express";
 import { supabase } from "../supabaseClient";
 import { supabaseAdmin } from "../supabaseAdmin";
-import { createWallet } from "../wallet";
-import { getOrCreateChainWallet } from "../chainWallets";
+import { createCctpFundingWallets, createWallet } from "../wallet";
 
 const router = Router();
-const CCTP_FUNDING_CHAINS = [
-  "ETH-SEPOLIA",
-  "ARB-SEPOLIA",
-  "BASE-SEPOLIA",
-  "OP-SEPOLIA",
-  "AVAX-FUJI",
-];
 
 // Sign up a new user — creates auth account, profile, and wallet in one step
 router.post("/signup", async (req, res) => {
@@ -57,18 +49,29 @@ router.post("/signup", async (req, res) => {
       } else {
         walletCreated = true;
 
-        // Provision every CCTP funding wallet in parallel. A failure on one
-        // optional chain must not block account creation or the Arc wallet.
-        const cctpResults = await Promise.allSettled(
-          CCTP_FUNDING_CHAINS.map((blockchain) => getOrCreateChainWallet(userId, blockchain))
-        );
+        try {
+          // Create all funding wallets in one batch so they share one EVM
+          // address across Ethereum Sepolia, Base, Arbitrum, Optimism, and Fuji.
+          const cctpWallets = await createCctpFundingWallets(userId);
+          const { error: cctpSaveError } = await supabaseAdmin.from("user_chain_wallets").insert(
+            cctpWallets.map((wallet) => ({
+              user_id: userId,
+              blockchain: wallet.blockchain,
+              circle_wallet_id: wallet.circleWalletId,
+              address: wallet.address,
+            }))
+          );
 
-        cctpWalletsCreated = cctpResults.filter((result) => result.status === "fulfilled").length;
-        cctpResults.forEach((result, index) => {
-          if (result.status === "rejected") {
-            console.error(`Failed to create ${CCTP_FUNDING_CHAINS[index]} wallet:`, result.reason);
+          if (cctpSaveError) {
+            console.error("Failed to save CCTP funding wallets:", cctpSaveError.message);
+          } else {
+            cctpWalletsCreated = cctpWallets.length;
           }
-        });
+        } catch (cctpWalletError) {
+          // Arc wallet setup and signup still succeed. The existing on-demand
+          // wallet creation remains as a fallback for a later bridge.
+          console.error("Failed to create CCTP funding wallets:", cctpWalletError);
+        }
       }
     } catch (walletCreationError) {
       console.error("Failed to create wallet:", walletCreationError);

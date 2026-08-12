@@ -1,6 +1,5 @@
 import { Router } from "express";
 import { bridgeUsdcForUser } from "../bridgeUsdc";
-import { getOrCreateChainWallet } from "../chainWallets";
 import { supabaseAdmin } from "../supabaseAdmin";
 
 const router = Router();
@@ -56,21 +55,11 @@ router.get("/bridge/supported-chains", (req, res) => {
   res.json({ chains: SUPPORTED_CHAINS });
 });
 
-// New users receive CCTP wallets at signup. This also backfills them for
-// existing users, so every user can see funding addresses without manual setup.
+// New users receive unified CCTP wallets at signup. Existing wallets are only
+// read here: do not replace an address that may already hold user funds.
 router.get("/cctp-wallets/:userId", async (req, res) => {
   try {
     const fundingChains = SUPPORTED_CHAINS.filter((chain) => chain !== "ARC-TESTNET");
-    const results = await Promise.allSettled(
-      fundingChains.map((blockchain) => getOrCreateChainWallet(req.params.userId, blockchain))
-    );
-
-    results.forEach((result, index) => {
-      if (result.status === "rejected") {
-        console.error(`Failed to provision ${fundingChains[index]} wallet:`, result.reason);
-      }
-    });
-
     const { data, error } = await supabaseAdmin
       .from("user_chain_wallets")
       .select("blockchain, address")
