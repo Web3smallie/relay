@@ -163,7 +163,12 @@ function ProductCard({
   async function handlePay() {
     if (!checkoutId) return;
     setPayStatus("paying");
-    setPayLog([{ text: "Initiating Relay Programmable Payment — sending USDC from your wallet...", status: "active" }]);
+    setPayLog([
+      {
+        text: "Checking your Arc wallet balance and cross-chain liquidity...",
+        status: "active",
+      },
+    ]);
 
     const { data } = await supabase.auth.getSession();
     if (!data.session) return;
@@ -185,9 +190,22 @@ function ProductCard({
         setPayStatus("error");
         return;
       }
+      const liquidityLog: LogEntry[] = payJson.liquidity?.bridged
+        ? [
+            {
+              text: `Arc balance was low. Relay used CCTP to bridge ${payJson.liquidity.amountBridged} USDC from ${payJson.liquidity.fromChain} to Arc.`,
+              status: "done",
+            },
+          ]
+        : [{ text: "Arc wallet has enough USDC for this payment.", status: "done" }];
+
       setPayLog((prev) => [
         { ...prev[0], status: "done" },
-        { text: `Payment sent via Relay Programmable Payment — tx ${payJson.paymentHash.slice(0, 10)}...`, status: "done" },
+        ...liquidityLog,
+        {
+          text: `Payment sent via Relay Programmable Payment - tx ${payJson.paymentHash.slice(0, 10)}...`,
+          status: "done",
+        },
         { text: "Confirming payment on-chain with merchant...", status: "active" },
       ]);
       setPayStatus("confirming");

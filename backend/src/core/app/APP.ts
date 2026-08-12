@@ -14,6 +14,11 @@ export type AuthorizeResult = {
 export type ExecuteResult = {
   hash: string;
   payerAddress: string;
+  liquidity: {
+    bridged: boolean;
+    fromChain?: string;
+    amountBridged?: number;
+  };
 };
 
 export interface APP {

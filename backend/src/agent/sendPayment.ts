@@ -62,7 +62,11 @@ export async function sendUsdcPayment(
   userId: string,
   treasuryAddress: string,
   amount: number
-): Promise<{ hash: string; payerAddress: string }> {
+): Promise<{
+  hash: string;
+  payerAddress: string;
+  liquidity: { bridged: boolean; fromChain?: string; amountBridged?: number };
+}> {
   const { data: walletRow, error } = await supabaseAdmin
     .from("wallets")
     .select("address, circle_wallet_id")
@@ -74,10 +78,10 @@ export async function sendUsdcPayment(
   }
 
   // Auto-bridge in liquidity from another chain if Arc balance is short
-  await ensureArcLiquidity(userId, walletRow.circle_wallet_id, amount);
+  const liquidity = await ensureArcLiquidity(userId, walletRow.circle_wallet_id, amount);
 
   const { hash } = await sendFromWallet(walletRow.circle_wallet_id, treasuryAddress, amount);
-  return { hash, payerAddress: walletRow.address };
+  return { hash, payerAddress: walletRow.address, liquidity };
 }
 
 /**
@@ -89,7 +93,11 @@ export async function sendUsdcPayment(
 export async function sendFromTreasury(
   destinationAddress: string,
   amount: number
-): Promise<{ hash: string; payerAddress: string }> {
+): Promise<{
+  hash: string;
+  payerAddress: string;
+  liquidity: { bridged: boolean; fromChain?: string; amountBridged?: number };
+}> {
   const treasuryCircleWalletId = process.env.RELAY_TREASURY_CIRCLE_WALLET_ID as string;
   const treasuryAddress = process.env.RELAY_TREASURY_ADDRESS as string;
 
@@ -98,7 +106,7 @@ export async function sendFromTreasury(
   }
 
   const { hash } = await sendFromWallet(treasuryCircleWalletId, destinationAddress, amount);
-  return { hash, payerAddress: treasuryAddress };
+  return { hash, payerAddress: treasuryAddress, liquidity: { bridged: false } };
 }
 
 async function pollForTransactionHash(

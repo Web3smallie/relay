@@ -304,6 +304,7 @@ app.post("/agent/pay", async (req, res) => {
       amount: initiation.expectedAmount,
       paymentHash: payment.hash,
       payerAddress: payment.payerAddress,
+      liquidity: payment.liquidity,
       message: "Payment sent. Confirmation may take a few seconds to process on-chain.",
     });
   } catch (error) {

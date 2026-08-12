@@ -2,8 +2,16 @@ import { Router } from "express";
 import { supabase } from "../supabaseClient";
 import { supabaseAdmin } from "../supabaseAdmin";
 import { createWallet } from "../wallet";
+import { getOrCreateChainWallet } from "../chainWallets";
 
 const router = Router();
+const CCTP_FUNDING_CHAINS = [
+  "ETH-SEPOLIA",
+  "ARB-SEPOLIA",
+  "BASE-SEPOLIA",
+  "OP-SEPOLIA",
+  "AVAX-FUJI",
+];
 
 // Sign up a new user — creates auth account, profile, and wallet in one step
 router.post("/signup", async (req, res) => {
@@ -21,6 +29,7 @@ router.post("/signup", async (req, res) => {
 
   const userId = data.user?.id;
   let walletCreated = false;
+  let cctpWalletsCreated = 0;
 
   if (userId) {
     // Create profile
@@ -47,6 +56,19 @@ router.post("/signup", async (req, res) => {
         console.error("Failed to save wallet:", walletError.message);
       } else {
         walletCreated = true;
+
+        // Provision every CCTP funding wallet in parallel. A failure on one
+        // optional chain must not block account creation or the Arc wallet.
+        const cctpResults = await Promise.allSettled(
+          CCTP_FUNDING_CHAINS.map((blockchain) => getOrCreateChainWallet(userId, blockchain))
+        );
+
+        cctpWalletsCreated = cctpResults.filter((result) => result.status === "fulfilled").length;
+        cctpResults.forEach((result, index) => {
+          if (result.status === "rejected") {
+            console.error(`Failed to create ${CCTP_FUNDING_CHAINS[index]} wallet:`, result.reason);
+          }
+        });
       }
     } catch (walletCreationError) {
       console.error("Failed to create wallet:", walletCreationError);
@@ -57,6 +79,7 @@ router.post("/signup", async (req, res) => {
     user: data.user,
     session: data.session,
     walletCreated,
+    cctpWalletsCreated,
     message: walletCreated
       ? "Signup successful."
       : "Signup successful, but wallet creation failed — please retry from your account settings.",
