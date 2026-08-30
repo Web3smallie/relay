@@ -96,6 +96,16 @@ export default function DashboardHomePage() {
           </Link>
 
           <Link
+            href="/dashboard/services"
+            className="group rounded-2xl border border-neutral-800 bg-neutral-900 p-6 transition hover:-translate-y-0.5 hover:border-neutral-600 hover:bg-neutral-800"
+          >
+            <div className="mb-5 flex h-10 w-10 items-center justify-center rounded-xl bg-amber-300 text-lg font-bold text-black">+</div>
+            <h4 className="mb-2 text-lg font-semibold text-white">Services</h4>
+            <p className="text-sm leading-6 text-neutral-400">Explore airtime and flight search services built into Relay.</p>
+            <span className="mt-5 inline-block text-sm font-medium text-white group-hover:underline">Browse services -&gt;</span>
+          </Link>
+
+          <Link
             href="/dashboard/wallet"
             className="group rounded-2xl border border-neutral-800 bg-neutral-900 p-6 transition hover:-translate-y-0.5 hover:border-neutral-600 hover:bg-neutral-800"
           >

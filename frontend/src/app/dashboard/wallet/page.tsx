@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { API_URL } from "@/lib/api";
+import CopyAddressButton from "@/components/CopyAddressButton";
 
 type CctpWallet = {
   blockchain: string;
@@ -86,9 +87,10 @@ export default function WalletPage() {
 
       <section className="mb-8">
         <h3 className="mb-3 text-lg font-semibold text-white">Relay payment wallet</h3>
-        <div className="max-w-xl rounded-xl border border-neutral-800 bg-neutral-900 p-6">
+        <div className="max-w-xl rounded-xl border border-neutral-800 bg-neutral-900 p-4 sm:p-6">
           <p className="mb-1 text-sm text-neutral-400">Arc wallet address</p>
           <p className="mb-5 break-all font-mono text-sm text-white">{address}</p>
+          {address && <CopyAddressButton address={address} className="mb-5" />}
           <p className="mb-1 text-sm text-neutral-400">Available USDC</p>
           <p className="text-2xl font-semibold text-white">{balance ?? "--"} USDC</p>
         </div>
@@ -105,12 +107,13 @@ export default function WalletPage() {
         {cctpWallets.length > 0 ? (
           <div className="grid gap-4 md:grid-cols-2">
             {cctpWallets.map((wallet) => (
-              <div key={wallet.blockchain} className="rounded-xl border border-neutral-800 bg-neutral-900 p-5">
+              <div key={wallet.blockchain} className="rounded-xl border border-neutral-800 bg-neutral-900 p-4 sm:p-5">
                 <p className="text-sm font-medium text-white">
                   {CHAIN_LABELS[wallet.blockchain] ?? wallet.blockchain}
                 </p>
                 <p className="mt-1 text-xs text-neutral-500">CCTP funding address</p>
                 <p className="mt-3 break-all font-mono text-sm text-neutral-300">{wallet.address}</p>
+                <CopyAddressButton address={wallet.address} className="mt-3" />
               </div>
             ))}
           </div>

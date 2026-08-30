@@ -18,6 +18,8 @@ import { initiatePayment } from "./agent/executePayment";
 import { sendUsdcPayment } from "./agent/sendPayment";
 import { RelayAPP } from "./core/app/RelayAPP";
 import { ReloadlyACP } from "./core/acp/ReloadlyACP";
+import { detectOperator } from "./merchants/ReloadlyAdapter";
+import { searchDuffelFlights } from "./merchants/DuffelAdapter";
 import { markPaymentVerified } from "./verifiedPaymentsCache";
 import { getMintedReceipt } from "./mintedReceiptsCache";
 import bridgeRoutes from "./routes/bridge";
@@ -392,5 +394,28 @@ app.post("/agent/topup", async (req, res) => {
     });
   } catch (error) {
     res.status(500).json({ error: (error as Error).message });
+  }
+});
+
+app.post("/reloadly/operator", async (req, res) => {
+  try {
+    const { phoneNumber, countryCode } = req.body;
+    if (!phoneNumber || !countryCode) {
+      return res.status(400).json({ error: "phoneNumber and countryCode are required" });
+    }
+
+    const operator = await detectOperator(String(phoneNumber), String(countryCode).toUpperCase());
+    res.json({ operator });
+  } catch (error) {
+    res.status(500).json({ error: (error as Error).message });
+  }
+});
+
+app.post("/travel/flights/search", async (req, res) => {
+  try {
+    const result = await searchDuffelFlights(req.body);
+    res.json(result);
+  } catch (error) {
+    res.status(400).json({ error: (error as Error).message });
   }
 });
