@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
+import { API_URL } from "@/lib/api";
 
 export default function AuthCallbackPage() {
   const [status, setStatus] = useState("Confirming your account...");
@@ -23,7 +24,7 @@ export default function AuthCallbackPage() {
       // Check that the wallet was actually created before sending to dashboard
       setStatus("Setting up your account...");
 
-      const res = await fetch(`http://localhost:4000/wallet-status/${userId}`);
+      const res = await fetch(`${API_URL}/wallet-status/${userId}`);
       const json = await res.json();
 
       if (json.hasWallet) {
@@ -31,7 +32,7 @@ export default function AuthCallbackPage() {
       } else {
         setStatus("Finishing wallet setup...");
         // Give it a moment then check again, or trigger creation as a fallback
-        await fetch("http://localhost:4000/wallet/create-for-user", {
+        await fetch(`${API_URL}/wallet/create-for-user`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ userId }),

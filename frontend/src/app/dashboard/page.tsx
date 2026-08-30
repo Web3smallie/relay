@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
+import { API_URL } from "@/lib/api";
 
 export default function DashboardHomePage() {
   const [loading, setLoading] = useState(true);
@@ -24,7 +25,7 @@ export default function DashboardHomePage() {
       setEmail(data.session.user.email ?? null);
 
       try {
-        const res = await fetch(`http://localhost:4000/profile/${userId}`);
+        const res = await fetch(`${API_URL}/profile/${userId}`);
         if (res.ok) {
           const json = await res.json();
           setFullName(json.profile?.full_name ?? null);

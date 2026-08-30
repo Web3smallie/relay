@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
+import { API_URL } from "@/lib/api";
 
 type Address = {
   id: number;
@@ -35,7 +36,7 @@ export default function AddressesPage() {
   const router = useRouter();
 
   async function loadAddresses(uid: string) {
-    const res = await fetch(`http://localhost:4000/addresses/${uid}`);
+    const res = await fetch(`${API_URL}/addresses/${uid}`);
     if (res.ok) {
       const json = await res.json();
       setAddresses(json.addresses ?? []);
@@ -62,7 +63,7 @@ export default function AddressesPage() {
     if (!userId) return;
     setSaving(true);
 
-    const res = await fetch("http://localhost:4000/addresses", {
+    const res = await fetch(`${API_URL}/addresses`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({

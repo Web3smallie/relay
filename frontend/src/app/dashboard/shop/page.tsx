@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
+import { API_URL } from "@/lib/api";
 
 type Product = {
   id: string;
@@ -130,7 +131,7 @@ function ProductCard({
       await new Promise((r) => setTimeout(r, 2000));
 
       try {
-        const res = await fetch(`http://localhost:4000/agent/receipt-status/${cid}`);
+        const res = await fetch(`${API_URL}/agent/receipt-status/${cid}`);
         const json = await res.json();
 
         if (json.minted && json.receipt) {
@@ -174,7 +175,7 @@ function ProductCard({
     if (!data.session) return;
 
     try {
-      const payRes = await fetch("http://localhost:4000/agent/pay", {
+      const payRes = await fetch(`${API_URL}/agent/pay`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ userId: data.session.user.id, checkoutId }),
@@ -210,7 +211,7 @@ function ProductCard({
       ]);
       setPayStatus("confirming");
 
-      const processRes = await fetch("http://localhost:4000/saleor-payment-process-trigger", {
+      const processRes = await fetch(`${API_URL}/saleor-payment-process-trigger`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ transactionId: payJson.transactionId }),
@@ -351,7 +352,7 @@ export default function ShopPage() {
     setUserId(uid);
 
     addLog("Checking your wallet...");
-    const walletRes = await fetch(`http://localhost:4000/wallet/for-user/${uid}`);
+    const walletRes = await fetch(`${API_URL}/wallet/for-user/${uid}`);
     if (!walletRes.ok) {
       updateLastLog("error");
       setError("No wallet found for your account.");
@@ -364,7 +365,7 @@ export default function ShopPage() {
 
     try {
       addLog("Understanding your request...");
-      const parseRes = await fetch("http://localhost:4000/agent/parse", {
+      const parseRes = await fetch(`${API_URL}/agent/parse`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ request: text }),
@@ -382,7 +383,7 @@ export default function ShopPage() {
       setConstraints(parseJson.constraints);
 
       addLog("Searching the merchant catalog...");
-      const searchRes = await fetch("http://localhost:4000/agent/search-with-constraints", {
+      const searchRes = await fetch(`${API_URL}/agent/search-with-constraints`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ constraints: parseJson.constraints, payerAddress, userId: uid }),
@@ -435,7 +436,7 @@ export default function ShopPage() {
     addLog("Parsing that address...", "active");
 
     try {
-      const parseAddrRes = await fetch("http://localhost:4000/agent/parse-address", {
+      const parseAddrRes = await fetch(`${API_URL}/agent/parse-address`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ addressText }),
@@ -452,7 +453,7 @@ export default function ShopPage() {
       updateLastLog("done");
       addLog(`Saving this as your "${pendingAddressLabel}" address...`, "active");
 
-      const saveRes = await fetch("http://localhost:4000/addresses", {
+      const saveRes = await fetch(`${API_URL}/addresses`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
+import { API_URL } from "@/lib/api";
 
 type CctpWallet = {
   blockchain: string;
@@ -37,7 +38,7 @@ export default function WalletPage() {
       const userId = data.session.user.id;
 
       try {
-        const walletRes = await fetch(`http://localhost:4000/wallet/for-user/${userId}`);
+        const walletRes = await fetch(`${API_URL}/wallet/for-user/${userId}`);
         if (!walletRes.ok) {
           setError("No wallet found for this account.");
           return;
@@ -47,8 +48,8 @@ export default function WalletPage() {
         setAddress(walletJson.address);
 
         const [balanceRes, cctpWalletsRes] = await Promise.all([
-          fetch(`http://localhost:4000/wallet/${walletJson.address}/balance`),
-          fetch(`http://localhost:4000/wallet/cctp-wallets/${userId}`),
+          fetch(`${API_URL}/wallet/${walletJson.address}/balance`),
+          fetch(`${API_URL}/wallet/cctp-wallets/${userId}`),
         ]);
 
         if (balanceRes.ok) {
