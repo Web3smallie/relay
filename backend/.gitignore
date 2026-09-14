@@ -1,14 +1,6 @@
 node_modules/
 dist/
 .env
-echo .agents/ >> .gitignore
-echo .claude/ >> .gitignore
-echo skills-lock.json >> .gitignore
-cd C:\Users\USER\relay
-echo .agents/ >> .gitignore
-echo .claude/ >> .gitignore
-echo skills-lock.json >> .gitignore
-git add .gitignore
-git commit -m "Ignore local agent tooling at repo root"
-git push
-echo recovery_file_*.dat >> .gitignore
+.env.*
+*.log
+recovery_file_*.dat

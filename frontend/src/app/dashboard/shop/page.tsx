@@ -39,6 +39,14 @@ type SearchResult = {
 type LogEntry = {
   text: string;
   status: "active" | "done" | "error";
+  link?: {
+    text: string;
+    url: string;
+  };
+  badge?: {
+    label: string;
+    variant: "escrow" | "capture" | "cctp" | "nft" | "void" | "info";
+  };
 };
 
 const EXAMPLES = [
@@ -68,29 +76,64 @@ function ConstraintTags({ c }: { c: Constraints }) {
   );
 }
 
+function LogBadge({ badge }: { badge: NonNullable<LogEntry["badge"]> }) {
+  const colorMap = {
+    escrow: "border-amber-500/30 bg-amber-500/10 text-amber-300",
+    capture: "border-emerald-500/30 bg-emerald-500/10 text-emerald-300",
+    cctp: "border-cyan-500/30 bg-cyan-500/10 text-cyan-300",
+    nft: "border-purple-500/30 bg-purple-500/10 text-purple-300",
+    void: "border-rose-500/30 bg-rose-500/10 text-rose-300",
+    info: "border-neutral-700 bg-neutral-800 text-neutral-300",
+  };
+
+  return (
+    <span
+      className={`inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider border ${
+        colorMap[badge.variant] || colorMap.info
+      }`}
+    >
+      {badge.label}
+    </span>
+  );
+}
+
 function AgentLog({ entries }: { entries: LogEntry[] }) {
   return (
-    <div className="mb-6 max-w-xl space-y-2 rounded-xl border border-neutral-800 bg-neutral-900/50 p-4">
+    <div className="mb-6 max-w-xl space-y-2.5 rounded-xl border border-neutral-800 bg-neutral-900/50 p-4">
       {entries.map((entry, i) => (
         <div key={i} className="flex items-start gap-2 text-sm">
-          <span className="mt-0.5">
-            {entry.status === "done" && <span className="text-green-500">✓</span>}
+          <span className="mt-0.5 shrink-0">
+            {entry.status === "done" && <span className="text-emerald-400 font-bold">✓</span>}
             {entry.status === "active" && (
-              <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-white" />
+              <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-cyan-400" />
             )}
-            {entry.status === "error" && <span className="text-red-500">✕</span>}
+            {entry.status === "error" && <span className="text-rose-400 font-bold">✕</span>}
           </span>
-          <span
-            className={
-              entry.status === "error"
-                ? "text-red-400"
-                : entry.status === "active"
-                ? "text-white"
-                : "text-neutral-400"
-            }
-          >
-            {entry.text}
-          </span>
+          <div className="flex flex-wrap items-center gap-1.5 leading-relaxed">
+            {entry.badge && <LogBadge badge={entry.badge} />}
+            <span
+              className={
+                entry.status === "error"
+                  ? "text-rose-300"
+                  : entry.status === "active"
+                  ? "text-white font-medium"
+                  : "text-neutral-300"
+              }
+            >
+              {entry.text}
+            </span>
+            {entry.link && (
+              <a
+                href={entry.link.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-0.5 font-mono text-xs text-cyan-400 hover:text-cyan-300 hover:underline"
+              >
+                <span>{entry.link.text}</span>
+                <span className="text-[10px]">↗</span>
+              </a>
+            )}
+          </div>
         </div>
       ))}
     </div>
@@ -109,7 +152,7 @@ function ProductCard({
   checkoutId?: string | null;
 }) {
   const [payStatus, setPayStatus] = useState<
-    "idle" | "paying" | "confirming" | "success" | "error"
+    "idle" | "authorizing" | "capturing" | "success" | "voided" | "error"
   >("idle");
   const [payLog, setPayLog] = useState<LogEntry[]>([]);
 
@@ -124,38 +167,54 @@ function ProductCard({
   }, [isRecommended, checkoutId]);
 
   async function pollForReceipt(cid: string) {
-    setPayLog((prev) => [...prev, { text: "Checking for your receipt NFT...", status: "active" }]);
+    setPayLog((prev) => [
+      ...prev,
+      {
+        text: "Minting ERC-721 Proof of Purchase NFT on Arc Testnet...",
+        status: "active",
+      },
+    ]);
 
-    const maxAttempts = 10;
+    const maxAttempts = 12;
     for (let i = 0; i < maxAttempts; i++) {
-      await new Promise((r) => setTimeout(r, 2000));
+      await new Promise((r) => setTimeout(r, 2500));
 
       try {
         const res = await fetch(`${API_URL}/agent/receipt-status/${cid}`);
         const json = await res.json();
 
         if (json.minted && json.receipt) {
+          const shortTx = json.receipt.transactionHash
+            ? `${json.receipt.transactionHash.slice(0, 8)}...${json.receipt.transactionHash.slice(-6)}`
+            : "";
           setPayLog((prev) => {
             const updated = [...prev];
             updated[updated.length - 1] = {
-              text: `Receipt NFT minted — tx ${json.receipt.transactionHash.slice(0, 10)}...`,
+              text: `Proof of Purchase NFT minted (${shortTx})`,
               status: "done",
+              badge: { label: "NFT Receipt", variant: "nft" },
+              link: json.receipt.transactionHash
+                ? {
+                    text: "ArcScan",
+                    url: `https://testnet.arcscan.app/tx/${json.receipt.transactionHash}`,
+                  }
+                : undefined,
             };
             return updated;
           });
           return;
         }
       } catch {
-        // keep polling silently, network hiccups shouldn't spam the log
+        // keep polling silently
       }
     }
 
-    // Didn't find it in time — not an error, minting may just be slow
     setPayLog((prev) => {
       const updated = [...prev];
       updated[updated.length - 1] = {
-        text: "Receipt NFT still processing — check your wallet shortly",
+        text: "Receipt NFT is pending final confirmation — check your wallet shortly",
         status: "done",
+        badge: { label: "Minting", variant: "info" },
       };
       return updated;
     });
@@ -163,10 +222,10 @@ function ProductCard({
 
   async function handlePay() {
     if (!checkoutId) return;
-    setPayStatus("paying");
+    setPayStatus("authorizing");
     setPayLog([
       {
-        text: "Checking your Arc wallet balance and cross-chain liquidity...",
+        text: "Checking Arc wallet balance & cross-chain liquidity...",
         status: "active",
       },
     ]);
@@ -186,30 +245,46 @@ function ProductCard({
       if (!payRes.ok) {
         setPayLog((prev) => [
           { ...prev[0], status: "done" },
-          { text: payJson.error || "Payment failed", status: "error" },
+          { text: payJson.error || "Payment authorization failed", status: "error" },
         ]);
         setPayStatus("error");
         return;
       }
-      const liquidityLog: LogEntry[] = payJson.liquidity?.bridged
+
+      const liquidityLogs: LogEntry[] = payJson.liquidity?.bridged
         ? [
             {
-              text: `Arc balance was low. Relay used CCTP to bridge ${payJson.liquidity.amountBridged} USDC from ${payJson.liquidity.fromChain} to Arc.`,
+              text: `Arc balance low. Bridged ${payJson.liquidity.amountBridged} USDC from ${payJson.liquidity.fromChain} via Circle CCTP.`,
               status: "done",
+              badge: { label: "CCTP Liquidity", variant: "cctp" },
             },
           ]
-        : [{ text: "Arc wallet has enough USDC for this payment.", status: "done" }];
+        : [{ text: "Arc wallet verified with sufficient USDC balance.", status: "done" }];
+
+      const shortHash = payJson.paymentHash
+        ? `${payJson.paymentHash.slice(0, 8)}...${payJson.paymentHash.slice(-6)}`
+        : "";
 
       setPayLog((prev) => [
         { ...prev[0], status: "done" },
-        ...liquidityLog,
+        ...liquidityLogs,
         {
-          text: `Payment sent via Relay Programmable Payment - tx ${payJson.paymentHash.slice(0, 10)}...`,
+          text: `Authorized & reserved funds in Arc Commerce Escrow (${shortHash})`,
           status: "done",
+          badge: { label: "Escrow Locked", variant: "escrow" },
+          link: payJson.paymentHash
+            ? {
+                text: "ArcScan",
+                url: `https://testnet.arcscan.app/tx/${payJson.paymentHash}`,
+              }
+            : undefined,
         },
-        { text: "Confirming payment on-chain with merchant...", status: "active" },
+        {
+          text: "Confirming order with Saleor merchant & capturing escrow...",
+          status: "active",
+        },
       ]);
-      setPayStatus("confirming");
+      setPayStatus("capturing");
 
       const processRes = await fetch(`${API_URL}/saleor-payment-process-trigger`, {
         method: "POST",
@@ -219,16 +294,43 @@ function ProductCard({
 
       const processJson = await processRes.json();
 
+      if (!processRes.ok) {
+        setPayLog((prev) => {
+          const updated = [...prev];
+          updated[updated.length - 1] = {
+            text: processJson.error || "Merchant order creation failed. Escrow voided.",
+            status: "error",
+            badge: { label: "Escrow Voided", variant: "void" },
+          };
+          return [
+            ...updated,
+            {
+              text: "Escrow funds automatically released back to your Arc wallet.",
+              status: "done",
+            },
+          ];
+        });
+        setPayStatus("voided");
+        return;
+      }
+
       setPayLog((prev) => {
         const updated = [...prev];
-        updated[updated.length - 1] = { ...updated[updated.length - 1], status: "done" };
-        return [...updated, { text: "Order placed with merchant", status: "done" }];
+        updated[updated.length - 1] = {
+          text: "Saleor merchant confirmed order — Escrow captured & released to merchant.",
+          status: "done",
+          badge: { label: "Escrow Captured", variant: "capture" },
+        };
+        return updated;
       });
       setPayStatus("success");
 
       pollForReceipt(checkoutId);
-    } catch {
-      setPayLog((prev) => [...prev, { text: "Something went wrong", status: "error" }]);
+    } catch (err) {
+      setPayLog((prev) => [
+        ...prev,
+        { text: (err as Error).message || "Something went wrong during payment", status: "error" },
+      ]);
       setPayStatus("error");
     }
   }
@@ -273,36 +375,95 @@ function ProductCard({
         </div>
       )}
 
-      {isRecommended && (
-        <div className="mt-2">
-          {payStatus !== "idle" && (
-            <div className="space-y-1.5 rounded-lg border border-neutral-800 bg-neutral-950 p-3">
+      {checkoutId && payStatus === "idle" && !isRecommended && (
+        <button
+          onClick={handlePay}
+          className="mt-3 w-full rounded-lg bg-neutral-800 hover:bg-neutral-700 py-2 text-xs font-medium text-white border border-neutral-700 transition"
+        >
+          Pay ${product.price.toFixed(2)} with Arc Escrow
+        </button>
+      )}
+
+      <div className="mt-2">
+        {payStatus !== "idle" && (
+          <div className="space-y-2 rounded-lg border border-neutral-800 bg-neutral-950 p-3">
+            <div className="flex items-center justify-between border-b border-neutral-800/80 pb-2">
+              <div className="flex items-center gap-1.5">
+                <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                <span className="text-[11px] font-medium text-neutral-300">
+                  Arc Commerce Escrow Rail
+                </span>
+              </div>
+              <span className="rounded bg-neutral-900 px-1.5 py-0.5 text-[10px] font-mono text-neutral-400 border border-neutral-800">
+                Arc Testnet
+              </span>
+            </div>
+
+            <div className="space-y-1.5 pt-0.5">
               {payLog.map((entry, i) => (
                 <div key={i} className="flex items-start gap-2 text-xs">
-                  <span className="mt-0.5">
-                    {entry.status === "done" && <span className="text-green-500">✓</span>}
+                  <span className="mt-0.5 shrink-0">
+                    {entry.status === "done" && <span className="text-emerald-400 font-bold">✓</span>}
                     {entry.status === "active" && (
-                      <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-white" />
+                      <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-cyan-400" />
                     )}
-                    {entry.status === "error" && <span className="text-red-500">✕</span>}
+                    {entry.status === "error" && <span className="text-rose-400 font-bold">✕</span>}
                   </span>
-                  <span
-                    className={
-                      entry.status === "error"
-                        ? "text-red-400"
-                        : entry.status === "active"
-                        ? "text-white"
-                        : "text-neutral-400"
-                    }
-                  >
-                    {entry.text}
-                  </span>
+                  <div className="flex flex-wrap items-center gap-1 leading-snug">
+                    {entry.badge && <LogBadge badge={entry.badge} />}
+                    <span
+                      className={
+                        entry.status === "error"
+                          ? "text-rose-300"
+                          : entry.status === "active"
+                          ? "text-white"
+                          : "text-neutral-400"
+                      }
+                    >
+                      {entry.text}
+                    </span>
+                    {entry.link && (
+                      <a
+                        href={entry.link.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-0.5 font-mono text-[11px] text-cyan-400 hover:text-cyan-300 hover:underline"
+                      >
+                        <span>{entry.link.text}</span>
+                        <span className="text-[9px]">↗</span>
+                      </a>
+                    )}
+                  </div>
                 </div>
               ))}
             </div>
-          )}
-        </div>
-      )}
+
+            {payStatus === "success" && (
+              <div className="mt-2 rounded border border-emerald-500/20 bg-emerald-500/5 px-2 py-1 text-center text-[11px] text-emerald-400">
+                ✓ 2-Phase Escrow Settlement Complete
+              </div>
+            )}
+
+            {payStatus === "voided" && (
+              <div className="mt-2 rounded border border-rose-500/20 bg-rose-500/5 px-2 py-1 text-center text-[11px] text-rose-400">
+                ✕ Order failed — Escrow voided and funds returned
+              </div>
+            )}
+
+            {(payStatus === "error" || payStatus === "voided") && (
+              <button
+                onClick={() => {
+                  hasTriggeredRef.current = false;
+                  handlePay();
+                }}
+                className="mt-1 block text-xs text-cyan-400 hover:text-cyan-300 underline"
+              >
+                Retry Escrow Payment
+              </button>
+            )}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

@@ -1,14 +1,29 @@
 // backend/src/core/app/APP.ts
 //
-// Agent Payment Protocol — the common payment interface Relay Core will
-// eventually use, instead of calling initiatePayment/sendUsdcPayment/
-// verifyUsdcPayment directly. This file defines the CONTRACT only.
-// No existing code is changed by adding this file.
+// Agent Payment Protocol — the common payment interface Relay Core uses
+// to support multiple payment rails (On-chain Escrow via Commerce Payments Protocol,
+// Direct Treasury Transfer, CCTP, etc.).
+
+import type { PaymentInfo } from "./protocolTypes";
+
+export type AuthorizeRequest = {
+  checkoutId: string;
+  userId?: string;
+  payerAddress?: string;
+  merchantReceiverAddress?: string;
+  amount?: number;
+  currency?: "USDC" | "EURC";
+  signature?: string; // Off-chain ERC-3009 signature if pre-signed
+};
 
 export type AuthorizeResult = {
   transactionId: string;
   treasuryAddress: string;
   expectedAmount: number;
+  rail: "arc_commerce_escrow" | "direct_treasury";
+  paymentInfo?: PaymentInfo;
+  paymentHash?: string;
+  nonce?: string;
 };
 
 export type ExecuteResult = {
@@ -21,11 +36,21 @@ export type ExecuteResult = {
   };
 };
 
+export type RailOperationResult = {
+  success: boolean;
+  hash: string;
+  status: string;
+  amount?: number;
+};
+
 export interface APP {
-  authorize(checkoutId: string): Promise<AuthorizeResult>;
-  execute(userId: string, treasuryAddress: string, amount: number): Promise<ExecuteResult>;
+  authorize(request: AuthorizeRequest | string): Promise<AuthorizeResult>;
+  execute(userId: string, destinationAddress: string, amount: number): Promise<ExecuteResult>;
   verify(payerAddress: string, amount: number): Promise<boolean>;
 
-  // Not yet implemented anywhere — reserved for future work.
-  refund?(transactionId: string): Promise<{ success: boolean }>;
+  // Escrow & Lifecycle Operations
+  capture?(transactionId: string, amount?: number): Promise<RailOperationResult>;
+  void?(transactionId: string): Promise<RailOperationResult>;
+  refund?(transactionId: string, amount?: number): Promise<RailOperationResult>;
+  reclaim?(transactionId: string): Promise<RailOperationResult>;
 }

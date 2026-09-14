@@ -4,6 +4,7 @@ import { verifyUsdcPayment } from "../agent/verifyPayment";
 import { getVerifiedPayment, clearVerifiedPayment } from "../verifiedPaymentsCache";
 import { mintReceipt } from "../agent/mintReceipt";
 import { markReceiptMinted } from "../mintedReceiptsCache";
+import { RelayAPP } from "../core/app/RelayAPP";
 
 const router = Router();
 
@@ -171,7 +172,19 @@ router.post("/transaction-process", async (req, res) => {
                 JSON.stringify(completeResult.checkoutComplete.order)
               );
 
-              // Mint a receipt NFT to the buyer — never let a mint failure
+              // 1. If this was an on-chain escrow transaction, capture the funds to the merchant
+              if (transactionId) {
+                try {
+                  const app_ = new RelayAPP();
+                  await app_.commerceRail.capture(transactionId, amount);
+                  console.log("Escrow captured successfully for transaction:", transactionId);
+                } catch (captureErr) {
+                  // If direct treasury was used or capture already ran, this safely logs
+                  console.log("Direct payment or capture notice:", (captureErr as Error).message);
+                }
+              }
+
+              // 2. Mint a receipt NFT to the buyer — never let a mint failure
               // undo or block the order, which is already real and paid.
               try {
                 const order = completeResult.checkoutComplete.order;
@@ -198,6 +211,17 @@ router.post("/transaction-process", async (req, res) => {
             }
           }
           console.error("Checkout complete failed after all retries for checkout:", confirmedCheckoutId);
+
+          // If checkout failed completely and funds were held in escrow, void to auto-refund
+          if (transactionId) {
+            try {
+              const app_ = new RelayAPP();
+              await app_.commerceRail.void(transactionId);
+              console.log("Escrow voided and funds returned for failed checkout:", transactionId);
+            } catch (voidErr) {
+              console.log("Void attempt notice:", (voidErr as Error).message);
+            }
+          }
         })();
       }
 

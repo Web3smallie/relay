@@ -3,11 +3,11 @@ import dotenv from "dotenv";
 
 dotenv.config();
 
-const supabaseUrl = process.env.SUPABASE_URL as string;
-const supabaseAnonKey = process.env.SUPABASE_ANON_KEY as string;
+const supabaseUrl = process.env.SUPABASE_URL || "https://placeholder-project.supabase.co";
+const supabaseAnonKey = process.env.SUPABASE_ANON_KEY || "placeholder-anon-key";
 
-if (!supabaseUrl || !supabaseAnonKey) {
-  throw new Error("Missing Supabase environment variables");
+if (!process.env.SUPABASE_URL || !process.env.SUPABASE_ANON_KEY) {
+  console.warn("Notice: Supabase client credentials not set.");
 }
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey);

@@ -23,6 +23,11 @@ import { searchDuffelFlights } from "./merchants/DuffelAdapter";
 import { markPaymentVerified } from "./verifiedPaymentsCache";
 import { getMintedReceipt } from "./mintedReceiptsCache";
 import bridgeRoutes from "./routes/bridge";
+import webhookRoutes from "./routes/webhooks";
+import { buildPaymentInfo, serializePaymentInfo, tokenFor } from "./core/app/protocolTypes";
+import { payerAgnosticNonce } from "./core/app/authorization";
+import { escrowAddress, tokenCollectorAddress } from "./contracts";
+import { parseUnits, isAddress, type Address } from "viem";
 
 dotenv.config();
 
@@ -40,6 +45,7 @@ app.use("/", profileRoutes);
 app.use("/", addressRoutes);
 app.use("/saleor-payment", saleorPaymentRoutes);
 app.use("/wallet", bridgeRoutes);
+app.use("/webhooks", webhookRoutes);
 
 
 app.get("/health", (req, res) => {
@@ -417,5 +423,118 @@ app.post("/travel/flights/search", async (req, res) => {
     res.json(result);
   } catch (error) {
     res.status(400).json({ error: (error as Error).message });
+  }
+});
+
+// ==========================================
+// Commerce Payments Protocol (Escrow Rail) Endpoints
+// ==========================================
+
+app.post("/agent/escrow/intent", async (req, res) => {
+  try {
+    const { currency = "USDC", amount, payer, receiver } = req.body;
+
+    if (!amount || Number(amount) <= 0) {
+      return res.status(400).json({ error: "Valid amount is required" });
+    }
+    if (!payer || !isAddress(payer)) {
+      return res.status(400).json({ error: "Valid payer address is required" });
+    }
+
+    const token = tokenFor(currency);
+    const maxAmount = parseUnits(amount.toString(), token.decimals);
+    const operator = (process.env.OPERATOR_ADDRESS || process.env.RELAY_TREASURY_ADDRESS) as Address;
+    const recipient = (receiver || process.env.MERCHANT_ADDRESS || process.env.RELAY_TREASURY_ADDRESS) as Address;
+
+    const paymentInfo = buildPaymentInfo({
+      operator,
+      payer: payer as Address,
+      receiver: recipient,
+      token: token.address,
+      maxAmount,
+    });
+
+    const nonce = await payerAgnosticNonce(escrowAddress(), paymentInfo);
+
+    res.json({
+      nonce,
+      value: maxAmount.toString(),
+      preApprovalExpiry: paymentInfo.preApprovalExpiry,
+      collector: tokenCollectorAddress(),
+      paymentInfo: serializePaymentInfo(paymentInfo),
+    });
+  } catch (error) {
+    res.status(500).json({ error: (error as Error).message });
+  }
+});
+
+app.post("/agent/escrow/authorize", async (req, res) => {
+  try {
+    const { checkoutId, signature, payer, amount, receiver, currency } = req.body;
+    const app_ = new RelayAPP();
+
+    const result = await app_.commerceRail.authorize({
+      checkoutId,
+      signature,
+      payerAddress: payer,
+      merchantReceiverAddress: receiver,
+      amount: amount ? Number(amount) : undefined,
+      currency,
+    });
+
+    res.json(result);
+  } catch (error) {
+    res.status(500).json({ error: (error as Error).message });
+  }
+});
+
+app.post("/agent/escrow/capture", async (req, res) => {
+  try {
+    const { transactionId, amount } = req.body;
+    if (!transactionId) {
+      return res.status(400).json({ error: "transactionId is required" });
+    }
+
+    const app_ = new RelayAPP();
+    const result = await app_.commerceRail.capture(
+      transactionId,
+      amount ? Number(amount) : undefined
+    );
+    res.json(result);
+  } catch (error) {
+    res.status(500).json({ error: (error as Error).message });
+  }
+});
+
+app.post("/agent/escrow/void", async (req, res) => {
+  try {
+    const { transactionId } = req.body;
+    if (!transactionId) {
+      return res.status(400).json({ error: "transactionId is required" });
+    }
+
+    const app_ = new RelayAPP();
+    const result = await app_.commerceRail.void(transactionId);
+    res.json(result);
+  } catch (error) {
+    res.status(500).json({ error: (error as Error).message });
+  }
+});
+
+app.post("/agent/escrow/refund", async (req, res) => {
+  try {
+    const { transactionId, amount } = req.body;
+    if (!transactionId) {
+      return res.status(400).json({ error: "transactionId is required" });
+    }
+
+    const app_ = new RelayAPP();
+    const result = await app_.commerceRail.refund(
+      transactionId,
+      amount ? Number(amount) : undefined
+    );
+    res.json(result);
+  } catch (error) {
+    res.status(500).json({ error: (error as Error).message });
   }
 });

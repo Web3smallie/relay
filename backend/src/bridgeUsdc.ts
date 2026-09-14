@@ -9,10 +9,17 @@ dotenv.config();
 
 const kit = new BridgeKit();
 
-const adapter = createCircleWalletsAdapter({
-  apiKey: process.env.CIRCLE_API_KEY as string,
-  entitySecret: process.env.CIRCLE_ENTITY_SECRET as string,
-});
+let cachedAdapter: any = null;
+function getAdapter() {
+  if (cachedAdapter) return cachedAdapter;
+  const apiKey = process.env.CIRCLE_API_KEY;
+  const entitySecret = process.env.CIRCLE_ENTITY_SECRET;
+  if (!apiKey || !entitySecret) {
+    throw new Error("CIRCLE_API_KEY and CIRCLE_ENTITY_SECRET are required for CCTP bridging");
+  }
+  cachedAdapter = createCircleWalletsAdapter({ apiKey, entitySecret });
+  return cachedAdapter;
+}
 
 function safeStringify(obj: any) {
   return JSON.stringify(
@@ -91,8 +98,8 @@ export async function bridgeUsdcForUser(
   const destWallet = await getUserWalletForChain(userId, destinationBlockchain);
 
   const estimate = await kit.estimate({
-    from: { adapter, chain: sourceChain, address: sourceWallet.address },
-    to: { adapter, chain: destChain, address: destWallet.address },
+    from: { adapter: getAdapter(), chain: sourceChain, address: sourceWallet.address },
+    to: { adapter: getAdapter(), chain: destChain, address: destWallet.address },
     amount,
     config: { transferSpeed: "FAST" },
   });
@@ -100,8 +107,8 @@ export async function bridgeUsdcForUser(
   console.log("Bridge estimate:", safeStringify(estimate));
 
   const result = await kit.bridge({
-    from: { adapter, chain: sourceChain, address: sourceWallet.address },
-    to: { adapter, chain: destChain, address: destWallet.address, useForwarder: true },
+    from: { adapter: getAdapter(), chain: sourceChain, address: sourceWallet.address },
+    to: { adapter: getAdapter(), chain: destChain, address: destWallet.address, useForwarder: true },
     amount,
   });
 
