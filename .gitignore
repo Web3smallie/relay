@@ -1,3 +1,6 @@
 ﻿.agents/
 .claude/
 skills-lock.json
+
+# Circle Entity Secret recovery artifacts — never commit
+recovery_file_*.dat

@@ -1,464 +1,397 @@
 # Relay
 
-## The commerce execution layer for AI agents and humans
+Relay is an ACP-compatible commerce execution layer that makes onchain commerce
+executable across merchants and services. Agents and users express a commerce
+intent; Relay handles provider selection, execution, USDC payment, Arc
+settlement, and verifiable receipt minting — all without the user needing to
+manage gas, bridges, or provider-specific APIs.
 
-Relay is a commerce execution layer that helps people and AI agents complete real-world transactions across different service providers.
+Built at a hackathon using Circle's developer platform, Arc Testnet, and the
+Arc Commerce Payments Protocol (ACP).
 
-It gives an agent one programmable path to discover a service, carry out the provider-specific steps, make a stablecoin payment, settle the transaction, verify the result, and receive a verifiable on-chain receipt.
+---
 
-In simple terms, Relay turns:
+## What Relay Does
 
-**“I want this”**
+Relay accepts a structured commerce request and executes it end-to-end:
 
-into:
+1. **Intent parsing** — natural-language or structured constraints are parsed
+   into a normalized form (`parseConstraints`).
+2. **Provider selection** — Relay routes the intent to the matching adapter
+   (Shopify, Saleor, Reloadly, Duffel).
+3. **Checkout / order creation** — the adapter creates a real order or quote
+   with the provider's API.
+4. **Liquidity assurance** — if the user's Arc wallet lacks sufficient USDC,
+   Relay auto-bridges from another supported chain via Circle CCTP, then
+   *waits* for the funds to arrive before proceeding (PAY-04 fix).
+5. **USDC payment** — transfers USDC from the user's Circle-managed SCA wallet
+   to Relay's treasury. Gas is sponsored by Circle Gas Station — the user needs
+   zero native Arc gas.
+6. **Settlement** — Relay forwards value to the merchant and confirms the order.
+7. **Receipt minting** — an NFT receipt is minted to the buyer's address on Arc
+   with embedded JSON metadata. The returned `txHash` is the real blockchain
+   transaction hash so the ArcScan link always works (BC-05 fix).
 
-**“It has been completed, paid for, settled, verified, and recorded.”**
+---
 
-> AI agents should be able to do more than recommend a purchase. They should be able to execute it safely and leave a verifiable record.
+## ACP Compatibility
 
-## Why Relay exists
+Relay implements the Arc Commerce Payments Protocol (ACP) on top of EIP-3009
+(transferWithAuthorization) and a deploy of the `AuthCaptureEscrow` and
+`ERC3009PaymentCollector` contracts on Arc Testnet.
 
-AI can already understand requests such as:
-
-> “Find a product under $100 and buy it if it is available.”
-
-But understanding a request is only the beginning.
-
-To complete a real transaction, a system may need to:
-
-- Search a provider's catalogue
-- Check availability
-- Create a checkout
-- Select delivery or shipping options
-- Authorize and execute payment
-- Confirm that the transaction succeeded
-- Keep a verifiable receipt
-
-Every provider handles these steps differently. One may use REST APIs, another GraphQL, and another a completely custom transaction flow.
-
-Without Relay, every agent would need to separately understand and integrate with every provider:
-
-```text
-Agent or human -> Provider A
-Agent or human -> Provider B
-Agent or human -> Provider C
+ACP flow:
+```
+Agent / UI
+  → POST /agent/escrow/intent           (build payment info + nonce for EIP-3009 authorization)
+  → POST /agent/escrow/authorize        (submit signed authorization, lock funds in escrow)
+  → POST /agent/escrow/capture          (capture escrow + settle to merchant)
+  → POST /agent/escrow/void             (void an authorized-but-uncaptured escrow)
+  → POST /agent/escrow/refund           (refund a captured payment)
+  → GET  /agent/receipt-status/:checkoutId  (retrieve minted receipt + txHash)
 ```
 
-Relay creates a common execution layer:
+The `RelayAPP` class in `backend/src/core/app/` implements the server side of
+the ACP standard; `ReloadlyACP` in `core/acp/` wraps the Reloadly airtime
+provider for ACP-compatible access.
 
-```text
-Agent or human -> Relay -> Service provider
-```
+---
 
-Relay handles the translation, orchestration, payment execution, settlement, verification, and transaction record.
+## Merchant / Service Integrations
 
-## What Relay does
+| Provider | Adapter | Status |
+|---|---|---|
+| **Shopify** | `ShopifyAdapter.ts` | Functional — product search, storefront checkout |
+| **Saleor** | `SaleorAdapter.ts` | Functional — GraphQL product search, order creation |
+| **Saleor GraphQL** | `routes/saleorPayment.ts` | Functional — direct GraphQL payment route |
+| **Reloadly** | `ReloadlyAdapter.ts` + `ReloadlyACP.ts` | Functional — airtime top-up via ACP |
+| **Duffel** | `DuffelAdapter.ts` | Partial — flight search integrated, booking not wired to payment |
 
-Relay is a working commerce system with an implemented end-to-end execution path.
+---
 
-It combines:
+## Payments
 
-- Service discovery
-- Provider-specific transaction execution
-- Relay-built programmable stablecoin payments
-- Settlement on Arc
-- Circle Programmable Wallet integration
-- Bidirectional USDC bridging with CCTP
-- Payment verification
-- On-chain NFT transaction receipts
-- Working ACP integrations for Saleor and Reloadly
+### USDC
 
-## Core capabilities
-
-### Service discovery and commerce execution
-
-Relay receives a request from a person or AI agent and turns it into a structured transaction flow.
-
-For example:
-
-> “Find a product under $100 and buy it if it is available.”
-
-Relay can identify requirements such as:
-
-- The product or service being requested
-- Maximum price
-- Availability requirements
-- Delivery or shipping details
-- Payment requirements
-
-Relay then sends the request to the relevant provider integration and prepares the provider-specific transaction.
-
-### Provider adapters
-
-Every commerce provider has different APIs, authentication methods, product formats, and checkout rules.
-
-Relay solves this through adapters.
-
-An adapter acts as a translator between Relay and a provider. Relay uses one consistent execution model, while each adapter handles the details required by that specific provider.
-
-Current provider work includes:
-
-- **Saleor** - GraphQL search and checkout operations, including shipping-method selection
-- **Shopify** - Integration foundation for Shopify commerce flows
-- **Reloadly** - Provider and agent-commerce integration work
-
-This makes Relay extensible: adding a provider should mean adding an adapter, not rebuilding the entire agent or payment system.
-
-### Programmable stablecoin payments
-
-Relay has its own programmable stablecoin payment system, built from scratch.
-
-The payment system is separate from Circle Programmable Wallets. Circle Wallets provide wallet infrastructure; Relay owns the payment orchestration and execution logic.
-
-Relay's programmable payment flow currently uses USDC and can:
-
-- Authorize a payment
-- Execute a payment
-- Track payment and transaction information
-- Track payer addresses
-- Verify payment completion
-- Track receipt status
-- Connect payment to the broader commerce transaction
-
-```text
-Commerce request
-        |
-        v
-Payment authorization
-        |
-        v
-Payment execution
-        |
-        v
-Settlement
-        |
-        v
-Verification
-        |
-        v
-NFT receipt
-```
-
-This means payment is not treated as a separate manual handoff. It is part of the same commerce execution flow.
-
-### Settlement on Arc
-
-Relay is built on **Arc**, which provides the settlement foundation for commerce transactions.
-
-Arc is the underlying settlement environment. Relay is the execution layer built on top of it.
-
-Relay coordinates:
-
-- The user's request
-- Provider-specific actions
-- Payment logic
-- Settlement
-- Verification
-- Transaction records
+All payments use USDC on Arc Testnet. Relay reads balances via ERC-20
+`balanceOf()` on the USDC contract (6-decimal precision). The native Arc gas
+representation (18 decimal) is never shown to users.
 
 ### Circle Programmable Wallets
 
-Relay integrates with **Circle Programmable Wallets**.
+Relay uses Circle Developer-Controlled Wallets (DCW) to custody user funds:
 
-This is a separate capability from Relay's programmable payment system. Wallets provide application-connected wallet infrastructure for users, while Relay's payment system determines how a payment is authorized, executed, and verified.
+- **Arc wallet (SCA)** — created with `accountType: "SCA"`. Eligible for Circle
+  Gas Station gas sponsorship. This is the wallet that holds user USDC and
+  executes payments.
+- **CCTP funding wallets (EOA)** — one EOA per supported chain (ETH-SEPOLIA,
+  ARB-SEPOLIA, BASE-SEPOLIA, OP-SEPOLIA, AVAX-FUJI). These are used as CCTP
+  burn-side wallets and must hold native gas on their respective chains.
 
-Implemented wallet capabilities include:
+### Arc
 
-- Creating wallets for users
-- Saving wallet information
-- Retrieving wallet information
-- Looking up wallet balances
+Relay targets Arc Testnet (`chainId: 5042002`). Arc uses USDC as the native gas
+token; the ERC-20 USDC address is `0x3600000000000000000000000000000000000000`.
 
-### Bidirectional CCTP bridging
+### CCTP (Cross-Chain Transfer Protocol)
 
-Relay includes **bidirectional CCTP bridging** for USDC.
+If a user's Arc USDC balance is insufficient for a purchase, Relay checks the
+user's other-chain wallets for available USDC and bridges the shortfall via
+Circle CCTP V2. The bridge is fire-and-wait — Relay polls the Arc balance until
+the bridged funds arrive before proceeding to payment (3-minute timeout).
 
-CCTP enables native USDC to move between supported blockchain networks.
+### Escrow
 
-Bidirectional support means Relay can support USDC movement in either direction. This is useful when a user's funds and the service or settlement environment are on different supported networks.
+The `AuthCaptureEscrow` contract provides an authorize-then-capture pattern
+compatible with ACP. Funds are locked in escrow at authorization time and
+released to the merchant on successful settlement.
 
-### Payment verification and NFT receipts
+### Receipt / NFT
 
-Relay does not stop after sending a payment.
+After a successful purchase, Relay calls `mintTo(address, tokenURI)` on the
+deployed `RelayReceipt` NFT contract. The tokenURI is an embedded base64 JSON
+object (no IPFS dependency). The receipt's blockchain `txHash` is retrieved by
+polling the Circle transaction until it reaches on-chain COMPLETE state — never
+the Circle operation UUID.
 
-It tracks:
+### Sponsored Gas / Gas Station
 
-- Transaction hashes
-- Payer addresses
-- Payment verification status
-- Receipt status
+New user wallets are created as SCA. Circle Gas Station for Arc Testnet
+auto-applies a default policy on signup (50 USDC/day). This means:
 
-After a transaction is completed, Relay can mint an NFT receipt through its deployed smart contract.
+- Users pay zero native Arc gas
+- Transactions are sponsored automatically by Circle's Gas Station paymaster
+- No code change per-transaction — the DCW SDK routes to Gas Station when the
+  wallet is SCA and a policy is active
 
-The receipt is not a collectible for its own sake. It is a persistent, verifiable on-chain record that a commerce transaction was completed.
+**Limitation:** existing EOA wallets (created before this change) are not
+eligible for Gas Station and must hold native USDC for gas. There is no in-place
+upgrade path from EOA to SCA; those users require a wallet migration.
 
-## Receipt contract
+---
 
-Relay uses a deployed smart contract to mint completed transaction receipts as NFTs.
+## End-to-End Flow
 
-| Contract detail | Value |
-| --- | --- |
-| Contract address | `0xf0cbdb78977dff70375185d98ceb4c84b91891b7` |
-| Network | To be added |
-| Explorer | To be added |
-
-Once the network and explorer link are added, users will be able to inspect the contract and independently verify minted receipts.
-
-## How Relay works
-
-A typical Relay transaction follows this flow:
-
-```text
-1. A person or AI agent requests a service.
-             |
-2. Relay understands the request and its constraints.
-   Example: product, budget, availability, destination.
-             |
-3. Relay selects the correct provider adapter.
-             |
-4. The adapter searches the provider and prepares
-   the provider-specific transaction or checkout.
-             |
-5. Relay runs its programmable stablecoin payment flow.
-             |
-6. The transaction settles on Arc.
-             |
-7. Relay verifies the payment and transaction outcome.
-             |
-8. Relay mints an NFT receipt through its contract.
-             |
-9. The person or AI agent receives the transaction result.
+```
+Commerce request (natural language or structured)
+  ↓
+parseConstraints()
+  ↓
+Provider adapter (Shopify / Saleor / Reloadly / Duffel)
+  ↓
+Order / quote created at provider
+  ↓
+ensureArcLiquidity()
+  → Arc USDC sufficient?  ──→ proceed
+  → No? bridge via CCTP   ──→ poll until USDC arrives on Arc (PAY-04 fix)
+  ↓
+sendUsdcPayment()
+  → SCA wallet? Gas Station sponsors gas automatically
+  → EOA wallet? Gas deducted from wallet's USDC balance
+  ↓
+USDC transferred to treasury (real on-chain txHash from DCW polling)
+  ↓
+Merchant settlement (provider API)
+  ↓
+mintReceipt()
+  → Circle DCW createContractExecutionTransaction
+  → poll until txHash present (BC-05 fix)
+  ↓
+Receipt NFT on Arc + real txHash → ArcScan link works
 ```
 
-The complete lifecycle is:
-
-**Discover -> Execute -> Pay -> Settle -> Verify -> Mint receipt**
+---
 
 ## Architecture
 
-Relay is organized in layers so that new providers, payment methods, and agent workflows can be added without rebuilding the whole system.
+```
+frontend/              Next.js 14 App Router frontend
+  src/app/
+    dashboard/         Authenticated user dashboard
+      page.tsx         Main dashboard + wallet overview
+      wallet/          Arc wallet + CCTP funding wallet management
+      shop/            Purchase flow UI
+      airtime/         Reloadly top-up UI
+      services/        ACP service listing
 
-```text
-People and AI agents
-        |
-        v
-Relay interface
-  - Authentication
-  - Profiles
-  - Addresses
-  - Agent workflows
-  - Request and constraint handling
-        |
-        v
-Commerce execution core
-  - Provider selection
-  - Checkout orchestration
-  - Transaction coordination
-  - Payment coordination
-  - Verification
-        |
-        +-------------------+----------------------+-------------------+
-        |                   |                      |                   |
-        v                   v                      v                   v
-Provider adapters     Payment system        Verification          Receipt contract
-  - Saleor             - Relay-built          - Payment checks      - NFT minting
-  - Shopify               stablecoin flow      - Transaction data
-  - Reloadly           - USDC
-                       - Arc settlement
-                       - Circle Wallets
-                       - CCTP bridging
+backend/               Express + TypeScript backend
+  src/
+    server.ts          Route registration entry point
+    chain.ts           Arc viem client, ERC-20 USDC balance (BC-02)
+    wallet.ts          Circle DCW wallet creation (SCA, MOD-5)
+    autoLiquidity.ts   CCTP bridge + balance polling (PAY-04)
+    agent/
+      sendPayment.ts   USDC transfer with Gas Station support (MOD-5)
+      mintReceipt.ts   NFT receipt minting + txHash polling (BC-05)
+      constraintParser.ts
+      executePurchaseSearch.ts
+      executePayment.ts
+    merchants/
+      ShopifyAdapter.ts
+      SaleorAdapter.ts
+      ReloadlyAdapter.ts
+      DuffelAdapter.ts
+    core/
+      app/             ACP protocol implementation (RelayAPP)
+      acp/             ACP adapters (ReloadlyACP)
+      settlement/      Settlement helpers
+    routes/            Express route handlers
+    contracts/         ABI + address constants for Arc contracts
 ```
 
-### Interface and agent layer
+Key external services:
+- **Circle Developer API** — wallet custody, token transfers, Gas Station
+- **Supabase** — user auth + wallet/order persistence
+- **Arc Testnet RPC** — `https://rpc.testnet.arc.network`
+- **ArcScan** — `https://testnet.arcscan.app`
 
-This layer is where people and AI agents interact with Relay.
+---
 
-It receives everyday requests or structured instructions and turns them into a transaction plan. It also handles authentication, user profiles, and address information.
-
-### Commerce execution core
-
-The execution core is Relay's coordinator.
-
-It decides which provider adapter should handle a request, runs the required provider actions, coordinates payment and settlement, verifies the result, and records the final transaction state.
-
-### Provider adapters
-
-Adapters isolate provider-specific complexity.
-
-Each provider may have different APIs and checkout rules, but Relay presents a consistent execution model to agents and users.
-
-### Payment and settlement layer
-
-Relay's programmable stablecoin payment system handles payment authorization, execution, tracking, and verification.
-
-Arc provides settlement infrastructure. Circle Programmable Wallets provide wallet infrastructure. CCTP supports movement of USDC between supported chains.
-
-| Capability | Role |
-| --- | --- |
-| Relay programmable payment system | Handles payment authorization, execution, tracking, and verification |
-| Arc | Provides the settlement foundation |
-| Circle Programmable Wallets | Provides wallet infrastructure for users |
-| CCTP | Enables native USDC movement across supported chains |
-
-### Verification and receipt layer
-
-Relay verifies that payment and provider actions completed successfully.
-
-It then mints an NFT receipt through the deployed receipt contract, creating a durable on-chain record of the transaction.
-
-## Agent Commerce Protocol integrations
-
-Relay includes working ACP integrations:
-
-- `SaleorACP`
-- `ReloadlyACP`
-
-ACP is part of the current system, not merely future work.
-
-These integrations allow agent-oriented workflows to access commerce capabilities through Relay instead of requiring every agent to directly manage each provider's API.
-
-## Application structure
-
-Relay combines a Next.js frontend with a backend execution service and supporting integrations.
-
-```text
-relay/
-|
-├── frontend/
-│   ├── app/                    # Pages and user-facing application flows
-│   ├── components/             # Reusable interface components
-│   └── lib/                    # Frontend helpers and API access
-|
-├── backend/
-│   ├── agent/                  # Intent, constraints, search, and execution logic
-│   ├── merchants/              # Provider-specific adapters
-│   │   ├── ShopifyAdapter/
-│   │   └── SaleorAdapter/
-│   ├── routes/                 # API routes for user and transaction actions
-│   ├── core/
-│   │   ├── app/                # Relay application and execution core
-│   │   └── acp/                # SaleorACP and ReloadlyACP integrations
-│   ├── wallet/                 # Wallet management
-│   ├── chain/                  # CCTP and receipt-contract interactions
-│   ├── supabaseClient/         # User-facing Supabase access
-│   ├── supabaseAdmin/          # Privileged server-side Supabase access
-│   ├── verifiedPaymentsCache/  # Payment-verification records
-│   └── mintedReceiptsCache/    # Receipt-minting records
-|
-└── README.md
-```
-
-## Frontend
-
-The Next.js frontend gives people a direct way to use Relay.
-
-It is responsible for the user experience, including:
-
-- Sign-in
-- User profiles
-- Address information
-- Commerce requests
-- Transaction views
-- Payment and receipt status
-
-## Backend
-
-The backend is Relay's execution engine.
-
-It receives requests from the frontend or agent workflows, calls the appropriate provider adapter, coordinates payments and settlement, verifies transaction outcomes, and triggers receipt minting.
-
-## Supabase
-
-Supabase supports authentication, user profiles, and application data.
-
-It gives Relay a persistent identity and data layer so that transactions can be associated with the correct user and application state.
-
-## Local development
+## Demo / Setup
 
 ### Prerequisites
 
-- Node.js and npm
-- A Supabase project
-- Arc configuration for settlement
-- Circle configuration for Programmable Wallets and receipt minting
-- Credentials for merchant or service integrations you enable
+- Node.js 18+ or Bun
+- A Circle developer account with Arc Testnet access
+- Supabase project
+- (Optional) Shopify storefront, Saleor GraphQL endpoint, Reloadly account
 
-Clone the repository:
+### Environment variables
+
+Create `backend/.env`:
+
+```env
+# Circle
+CIRCLE_API_KEY=
+CIRCLE_ENTITY_SECRET=
+CIRCLE_WALLET_SET_ID=
+
+# Relay wallets (Arc Testnet)
+RELAY_TREASURY_CIRCLE_WALLET_ID=
+RELAY_TREASURY_ADDRESS=
+RELAY_RECEIPT_CONTRACT_ADDRESS=
+USDC_TOKEN_ID=
+USDC_CONTRACT_ADDRESS=0x3600000000000000000000000000000000000000
+
+# Supabase
+SUPABASE_URL=
+SUPABASE_SERVICE_ROLE_KEY=
+SUPABASE_ANON_KEY=
+
+# Providers (optional — set as needed)
+SHOPIFY_STORE_URL=
+SHOPIFY_STOREFRONT_TOKEN=
+SALEOR_API_URL=
+RELOADLY_CLIENT_ID=
+RELOADLY_CLIENT_SECRET=
+DUFFEL_ACCESS_TOKEN=
+
+# App
+PORT=4000
+```
+
+Create `frontend/.env.local`:
+
+```env
+NEXT_PUBLIC_API_URL=http://localhost:4000
+NEXT_PUBLIC_SUPABASE_URL=
+NEXT_PUBLIC_SUPABASE_ANON_KEY=
+```
+
+### Setup
 
 ```bash
-git clone <YOUR_REPOSITORY_URL>
-cd relay
+# Install backend
+cd backend && npm install
+
+# Register entity secret (once per Circle entity)
+# Follow the Circle developer console:
+# https://console.circle.com/wallets/dev/configurator/entity-secret
+
+# Deploy receipt contract (once)
+cd backend && npx ts-node src/deployReceiptContract.ts
+
+# Install frontend
+cd frontend && npm install
 ```
 
-Relay has separate frontend and backend applications. Install and run each from its own directory:
+### Running
 
 ```bash
-# In the backend directory
-npm install
-npm run dev
+# Terminal 1 — backend
+cd backend && npm run dev
+# Starts Express on http://localhost:4000
 
-# In the frontend directory
-npm install
-npm run dev
+# Terminal 2 — frontend
+cd frontend && npm run dev
+# Starts Next.js on http://localhost:3000
 ```
 
-The backend is typically available at:
+### Testnet configuration
 
-```text
-http://localhost:4000
+1. Log in to the Circle developer console.
+2. Toggle to **Testnet**.
+3. Create a **wallet set** and set `CIRCLE_WALLET_SET_ID`.
+4. Deploy a treasury wallet (SCA) on ARC-TESTNET and fund it with testnet USDC
+   via [https://faucet.circle.com](https://faucet.circle.com).
+5. Navigate to **Gas Station** and confirm a default testnet policy exists for
+   Arc Testnet (it is created automatically on signup).
+6. Set `RELAY_TREASURY_CIRCLE_WALLET_ID` and `RELAY_TREASURY_ADDRESS`.
+
+### Example commerce flow
+
+1. Sign up at `http://localhost:3000`
+2. Relay creates an SCA wallet on Arc Testnet for you
+3. Fund the wallet via the Circle testnet faucet (Arc Testnet USDC)
+4. Navigate to **Shop** — search for a product on Shopify or Saleor
+5. Click **Buy** — Relay executes the purchase end-to-end
+6. Gas is sponsored by Circle Gas Station (zero native gas needed)
+7. On success, a receipt NFT is minted and you receive an ArcScan link
+
+### Payment flow details
+
+- USDC is transferred from your SCA wallet to Relay's treasury
+- If your Arc balance is low, Relay bridges from another chain automatically
+- Gas is sponsored — you never need to acquire native Arc gas
+- The receipt hash links directly to the minted NFT on ArcScan
+
+### Receipt verification
+
+```
+GET /receipt/{orderId}
 ```
 
-The Next.js frontend is typically available at:
+Returns `{ txHash, arcScanUrl, tokenURI, metadata }`. The `txHash` is the real
+on-chain transaction hash; the ArcScan link opens the minted NFT transaction.
 
-```text
-http://localhost:3000
+### Gas Station test
+
+```bash
+cd backend && bun run src/test/mod6-gas-station-test.ts
 ```
 
-Check the relevant `package.json` files for the exact scripts and configured ports.
+Creates a fresh SCA wallet, verifies it has zero native gas, checks the ERC-20
+USDC balance reads correctly, and confirms Gas Station eligibility.
 
-## Configuration and security
+---
 
-Relay needs configuration for the integrations you choose to run, including:
+## Security
 
-- Supabase
-- Arc
-- Circle
-- Merchant providers
-- Blockchain and RPC services
+**This is a hackathon prototype. It is NOT production-grade.**
 
-Never commit API keys, service-role credentials, or private keys to source control.
+Known limitations:
+- Circle Developer-Controlled Wallets means Circle custodies all user keys. This
+  is appropriate for a hackathon demo; a production system would use
+  User-Controlled Wallets or a non-custodial model.
+- No formal audit. Smart contracts (`AuthCaptureEscrow`, `ERC3009PaymentCollector`)
+  are proof-of-concept deployments on Arc Testnet.
+- All credentials must be in `.env` — do not commit `.env` files.
+- The Circle Entity Secret recovery file (`recovery_file_*.dat`) must never be
+  committed to version control. The root `.gitignore` prevents this.
+- Supabase RLS is not hardened — Row-Level Security policies should be reviewed
+  before any user-facing deployment.
+- API routes have no rate limiting.
+- The backend has no authentication middleware beyond Supabase session validation.
 
-Keep sensitive credentials on the server and configure production values through your deployment platform. The frontend should use a configured production API URL rather than a hard-coded localhost address.
+---
 
-## What comes next
+## Tech Stack
 
-Relay is designed to add new providers and commerce categories while keeping one execution model for agents and humans.
+| Layer | Technology |
+|---|---|
+| Frontend | Next.js 14, React, Tailwind CSS, TypeScript |
+| Backend | Express, TypeScript, Bun |
+| Wallet custody | Circle Developer-Controlled Wallets |
+| Gas sponsorship | Circle Gas Station (ERC-4337, Arc Testnet) |
+| Payment token | USDC on Arc Testnet |
+| Bridging | Circle CCTP V2 |
+| Settlement | Arc Commerce Payments Protocol (ACP) |
+| Contracts | Solidity (AuthCaptureEscrow, ERC3009PaymentCollector, RelayReceipt NFT) |
+| Chain | Arc Testnet (chainId: 5042002) |
+| Database | Supabase (Postgres) |
+| Commerce providers | Shopify Storefront API, Saleor GraphQL, Reloadly, Duffel |
 
-Planned areas of expansion include:
+---
 
-- A fuller Reloadly consumer-facing catalogue and frontend experience
-- Duffel travel search and booking execution
-- StableFX, pending KYC and additional integration work
-- x402 support
-- MPP support
-- More transaction policies and permissions
-- More agent-to-agent commerce workflows
-- Production-scale idempotency, reconciliation, retries, rate limits, observability, and durable transaction state
+## Submission Notes for Judges
 
-## Contributing
+Relay demonstrates that onchain commerce can be **completely invisible to the
+user**. A user with USDC and zero native gas can:
 
-Useful contributions include:
+1. Click **Buy** on a real product
+2. Have Relay auto-bridge liquidity from another chain if needed
+3. Have their transaction gas sponsored by Circle Gas Station
+4. Receive a verifiable NFT receipt with a working ArcScan link
 
-- Provider adapters
-- Commerce execution workflows
-- Payment verification
-- Receipt systems
-- Security
-- Testing
-- Observability
+All of this happens with no manual gas management, no bridge UI, and no
+provider-specific knowledge required from the user or the agent triggering the
+purchase.
 
-When adding a provider, keep provider-specific logic behind an adapter rather than coupling it directly to the agent layer.
+The ACP integration means any ACP-compatible agent can call Relay's endpoints
+to execute commerce — making Relay a composable commerce execution primitive
+for the Arc agentic economy.
 
-## License
-
-Consult the repository license and project terms before commercial reuse or redistribution.
+**Live demo:** Connect the backend and frontend, fund a wallet with testnet USDC
+from [https://faucet.circle.com](https://faucet.circle.com), and walk through
+the Shop or Airtime demo flows. Gas sponsorship activates automatically for
+new SCA wallets.

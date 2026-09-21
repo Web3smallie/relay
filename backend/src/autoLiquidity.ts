@@ -15,6 +15,12 @@ const OTHER_CHAINS = ["ETH-SEPOLIA", "ARB-SEPOLIA", "BASE-SEPOLIA", "OP-SEPOLIA"
 const MIN_BRIDGE_AMOUNT = 3; // matches bridgeUsdc.ts's own CCTP minimum
 const SAFETY_BUFFER = 0.5; // small margin for Arc-side transaction costs
 
+// PAY-04 fix: after a bridge completes we poll the Arc wallet balance until
+// the bridged USDC actually arrives. CCTP fast-transfer typically settles in
+// 10-30 seconds; we wait up to 3 minutes before giving up.
+const BRIDGE_SETTLE_POLL_MS = 5000; // check every 5 seconds
+const BRIDGE_SETTLE_TIMEOUT_MS = 180_000; // 3 minutes max
+
 async function getBalances(circleWalletId: string): Promise<{ usdc: number; native: number }> {
   const response = await client.getWalletTokenBalance({ id: circleWalletId });
   const balances = response.data?.tokenBalances || [];
@@ -28,6 +34,44 @@ async function getBalances(circleWalletId: string): Promise<{ usdc: number; nati
   };
 }
 
+/**
+ * Polls the Arc wallet balance until it reaches or exceeds `targetUsdc`,
+ * or until `timeoutMs` has elapsed. Returns the final USDC balance.
+ *
+ * This resolves the PAY-04 race condition where Relay called `sendUsdcPayment`
+ * immediately after `bridgeUsdcForUser` returned — before CCTP had actually
+ * delivered the funds to the Arc wallet, causing the payment to fail with
+ * "insufficient balance".
+ */
+async function waitForArcBalance(
+  arcCircleWalletId: string,
+  targetUsdc: number,
+  timeoutMs = BRIDGE_SETTLE_TIMEOUT_MS
+): Promise<number> {
+  const deadline = Date.now() + timeoutMs;
+
+  while (Date.now() < deadline) {
+    const { usdc } = await getBalances(arcCircleWalletId);
+    console.log(`[ensureArcLiquidity] Arc balance poll: ${usdc} USDC (need ${targetUsdc})`);
+
+    if (usdc >= targetUsdc) {
+      return usdc;
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, BRIDGE_SETTLE_POLL_MS));
+  }
+
+  const { usdc: finalBalance } = await getBalances(arcCircleWalletId);
+  if (finalBalance >= targetUsdc) {
+    return finalBalance;
+  }
+
+  throw new Error(
+    `CCTP bridge timed out: Arc balance is ${finalBalance} USDC after ${timeoutMs / 1000}s, ` +
+    `but ${targetUsdc} USDC is required. The bridge may still be in flight — try again in a moment.`
+  );
+}
+
 export type LiquidityResult =
   | { bridged: false }
   | { bridged: true; fromChain: string; amountBridged: number };
@@ -36,11 +80,14 @@ export type LiquidityResult =
  * Checks whether the user's Arc wallet has enough USDC for a purchase.
  * If not, looks across their other-chain wallets for one with enough
  * USDC AND its own native gas already funded, bridges the shortfall
- * into Arc via CCTP, and waits for it to complete before returning.
+ * into Arc via CCTP, and WAITS for the bridged USDC to arrive before
+ * returning.
  *
- * Does NOT sponsor gas from Relay's treasury — a source wallet lacking
- * its own native gas is a documented limitation, not something this
- * function works around. See Stage 3 (not yet built) for that.
+ * PAY-04 fix: previously this function returned immediately after calling
+ * bridgeUsdcForUser(), before CCTP had settled. Payment would then fail
+ * because the Arc balance hadn't updated yet. Now we poll the Arc balance
+ * until the required amount is confirmed, with a 3-minute timeout and a
+ * clear error if settlement doesn't arrive in time.
  */
 export async function ensureArcLiquidity(
   userId: string,
@@ -81,9 +128,16 @@ export async function ensureArcLiquidity(
       );
     }
 
-    console.log(`Auto-bridging ${shortfall} USDC from ${wallet.blockchain} to Arc for user ${userId}`);
+    console.log(`[ensureArcLiquidity] Auto-bridging ${shortfall} USDC from ${wallet.blockchain} to Arc for user ${userId}`);
 
     await bridgeUsdcForUser(userId, wallet.blockchain, "ARC-TESTNET", shortfall.toString());
+
+    // PAY-04 fix: wait for the bridged USDC to land on Arc before returning.
+    // bridgeUsdcForUser() returns when the bridge TX is submitted, not when
+    // CCTP has delivered the funds. We poll here to confirm arrival.
+    console.log(`[ensureArcLiquidity] Bridge submitted. Waiting for USDC to arrive on Arc...`);
+    await waitForArcBalance(arcCircleWalletId, requiredAmount);
+    console.log(`[ensureArcLiquidity] Arc balance confirmed sufficient. Proceeding to payment.`);
 
     return { bridged: true, fromChain: wallet.blockchain, amountBridged: shortfall };
   }
