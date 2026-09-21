@@ -23,10 +23,12 @@ Relay accepts a structured commerce request and executes it end-to-end:
    with the provider's API.
 4. **Liquidity assurance** — if the user's Arc wallet lacks sufficient USDC,
    Relay auto-bridges from another supported chain via Circle CCTP, then
-   *waits* for the funds to arrive before proceeding (PAY-04 fix).
+   *waits* for the funds to arrive before proceeding (PAY-04 fix). Note: CCTP
+   source-chain wallets are EOA and require native gas on the respective source
+   chain to initiate the bridge.
 5. **USDC payment** — transfers USDC from the user's Circle-managed SCA wallet
-   to Relay's treasury. Gas is sponsored by Circle Gas Station — the user needs
-   zero native Arc gas.
+   to Relay's treasury. Gas for the Arc-side payment is sponsored by Circle Gas
+   Station — the user needs zero native Arc gas for this step.
 6. **Settlement** — Relay forwards value to the merchant and confirms the order.
 7. **Receipt minting** — an NFT receipt is minted to the buyer's address on Arc
    with embedded JSON metadata. The returned `txHash` is the real blockchain
@@ -113,6 +115,9 @@ deployed `RelayReceipt` NFT contract. The tokenURI is an embedded base64 JSON
 object (no IPFS dependency). The receipt's blockchain `txHash` is retrieved by
 polling the Circle transaction until it reaches on-chain COMPLETE state — never
 the Circle operation UUID.
+
+Deployed contract on Arc Testnet:
+`0xf0cbdb78977dff70375185d98ceb4c84b91891b7`
 
 ### Sponsored Gas / Gas Station
 
@@ -229,7 +234,7 @@ CIRCLE_WALLET_SET_ID=
 # Relay wallets (Arc Testnet)
 RELAY_TREASURY_CIRCLE_WALLET_ID=
 RELAY_TREASURY_ADDRESS=
-RELAY_RECEIPT_CONTRACT_ADDRESS=
+RELAY_RECEIPT_CONTRACT_ADDRESS=0xf0cbdb78977dff70375185d98ceb4c84b91891b7
 USDC_TOKEN_ID=
 USDC_CONTRACT_ADDRESS=0x3600000000000000000000000000000000000000
 
@@ -268,7 +273,10 @@ cd backend && npm install
 # Follow the Circle developer console:
 # https://console.circle.com/wallets/dev/configurator/entity-secret
 
-# Deploy receipt contract (once)
+# Deploy receipt contract (fresh/local deployment only)
+# The submitted Relay deployment already uses the deployed RelayReceipt contract
+# at 0xf0cbdb78977dff70375185d98ceb4c84b91891b7 on Arc Testnet — skip this step
+# unless you are running a completely independent local deployment.
 cd backend && npx ts-node src/deployReceiptContract.ts
 
 # Install frontend
@@ -311,18 +319,21 @@ cd frontend && npm run dev
 ### Payment flow details
 
 - USDC is transferred from your SCA wallet to Relay's treasury
-- If your Arc balance is low, Relay bridges from another chain automatically
-- Gas is sponsored — you never need to acquire native Arc gas
+- If your Arc balance is low, Relay bridges from another chain automatically.
+  **Note:** the CCTP source-chain wallets are EOA and require native gas (e.g.
+  testnet ETH on ARB-SEPOLIA) to initiate the burn transaction on that chain.
+- Arc-side payment gas is sponsored by Gas Station — no native Arc gas needed
 - The receipt hash links directly to the minted NFT on ArcScan
 
 ### Receipt verification
 
 ```
-GET /receipt/{orderId}
+GET /agent/receipt-status/:checkoutId
 ```
 
-Returns `{ txHash, arcScanUrl, tokenURI, metadata }`. The `txHash` is the real
-on-chain transaction hash; the ArcScan link opens the minted NFT transaction.
+Returns `{ minted, receipt: { txHash, arcScanUrl, tokenURI, metadata } }`. The
+`txHash` is the real on-chain transaction hash; the ArcScan link opens the
+minted NFT transaction.
 
 ### Gas Station test
 
@@ -376,22 +387,26 @@ Known limitations:
 ## Submission Notes for Judges
 
 Relay demonstrates that onchain commerce can be **completely invisible to the
-user**. A user with USDC and zero native gas can:
+user**. A user with USDC can:
 
 1. Click **Buy** on a real product
-2. Have Relay auto-bridge liquidity from another chain if needed
-3. Have their transaction gas sponsored by Circle Gas Station
+2. Have Relay bridge liquidity from another chain if the Arc balance is
+   insufficient (requires native gas on the source chain for the CCTP burn)
+3. Have their **Arc-side payment gas sponsored** by Circle Gas Station — no
+   native Arc gas required for the payment step
 4. Receive a verifiable NFT receipt with a working ArcScan link
 
-All of this happens with no manual gas management, no bridge UI, and no
-provider-specific knowledge required from the user or the agent triggering the
-purchase.
+The Arc payment step requires no native gas management. CCTP bridging from
+source-chain EOA wallets currently requires native gas on the respective source
+chain (e.g. testnet ETH on ARB-SEPOLIA) to initiate the USDC burn.
 
 The ACP integration means any ACP-compatible agent can call Relay's endpoints
 to execute commerce — making Relay a composable commerce execution primitive
 for the Arc agentic economy.
 
-**Live demo:** Connect the backend and frontend, fund a wallet with testnet USDC
-from [https://faucet.circle.com](https://faucet.circle.com), and walk through
-the Shop or Airtime demo flows. Gas sponsorship activates automatically for
-new SCA wallets.
+**Live demo:** [https://relayasp.vercel.app/](https://relayasp.vercel.app/)
+
+Fund a wallet with testnet USDC from
+[https://faucet.circle.com](https://faucet.circle.com) and walk through the
+Shop or Airtime demo flows. Gas sponsorship activates automatically for new SCA
+wallets.
