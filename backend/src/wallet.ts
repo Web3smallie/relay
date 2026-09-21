@@ -19,15 +19,22 @@ export const CCTP_FUNDING_CHAINS = [
 ] as const;
 
 /**
- * Creates a new Circle-custodied wallet for a user on Arc Testnet. Circle
- * holds and manages the private key entirely — Relay never generates,
- * sees, or stores a raw private key or mnemonic anymore.
+ * Creates a new Circle-custodied wallet for a user on Arc Testnet.
+ *
+ * Account type: SCA (Smart Contract Account) — required for Circle Gas Station
+ * to sponsor Arc gas on behalf of the user. Gas Station is pre-configured on
+ * Arc Testnet (50 USDC/day limit, auto-applied by Circle once the policy is
+ * active). With SCA wallets, users need zero native gas to transact — Relay's
+ * Gas Station policy covers it automatically.
+ *
+ * CCTP source wallets remain EOA (see createCctpFundingWallets) and require
+ * native gas on each source chain to submit the USDC burn transaction.
  */
 export async function createWallet() {
   const response = await client.createWallets({
     walletSetId: WALLET_SET_ID,
     blockchains: ["ARC-TESTNET"],
-    accountType: "EOA",
+    accountType: "SCA", // SCA enables Circle Gas Station sponsorship on Arc
     count: 1,
   });
 
@@ -40,13 +47,32 @@ export async function createWallet() {
   return {
     circleWalletId: wallet.id,
     address: wallet.address,
+    accountType: (wallet as any).accountType ?? "SCA",
   };
+}
+
+/**
+ * Looks up the account type of an existing Circle wallet.
+ * Returns "SCA", "EOA", or "UNKNOWN" if the field is absent.
+ * Used by sendFromWallet to decide whether Gas Station applies.
+ */
+export async function getWalletAccountType(circleWalletId: string): Promise<string> {
+  try {
+    const response = await client.getWallet({ id: circleWalletId });
+    return (response.data?.wallet as any)?.accountType ?? "UNKNOWN";
+  } catch {
+    return "UNKNOWN";
+  }
 }
 
 /**
  * Creates all CCTP funding wallets in one EVM batch. Circle assigns the same
  * address across the chains in this batch, giving each new user one CCTP
  * funding address for all supported EVM testnets.
+ *
+ * Account type: EOA — source-chain CCTP wallets must hold native gas to submit
+ * the USDC burn transaction on each source chain. autoLiquidity.ts enforces
+ * this via a native-balance guard before attempting the bridge.
  */
 export async function createCctpFundingWallets(userId: string) {
   const response = await client.createWallets({
